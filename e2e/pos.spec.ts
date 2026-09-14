@@ -96,7 +96,7 @@ test('RTL layout keeps all tiles and checkout within the viewport',async({page})
 });
 test('quantity editor updates the basket without a visible undo control',async({page})=>{
  const total=await page.getByTestId('grand-total').innerText();
- await page.getByRole('complementary').getByRole('button',{name:/بسكويت حليب · علبة/}).click();
+ await page.getByRole('complementary').getByRole('button',{name:'1 بسكويت حليب · علبة',exact:true}).click();
  await page.getByRole('button',{name:'تغيير كمية بسكويت حليب · علبة',exact:true}).click();
  await page.getByRole('textbox',{name:'الكمية',exact:true}).fill('3');
  await page.getByRole('button',{name:'حفظ التعديل',exact:true}).click();

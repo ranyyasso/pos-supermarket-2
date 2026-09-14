@@ -51,7 +51,7 @@ test('keyboard-wedge scan adds once without activating the focused button',async
  await expect(total(page)).not.toHaveText(before);await expect(page.getByRole('complementary')).toContainText('٥٧٬٢٠٠');await expect(page.locator('.toast')).toHaveCount(0);
 });
 test('quantity notes, validation, cap and remove confirmation',async({page})=>{
- await page.getByRole('complementary').getByRole('button',{name:/بسكويت حليب · علبة/}).click();
+ await page.getByRole('complementary').getByRole('button',{name:'1 بسكويت حليب · علبة',exact:true}).click();
  await page.getByRole('button',{name:'تغيير كمية بسكويت حليب · علبة',exact:true}).click();
  await page.getByRole('textbox',{name:'الكمية',exact:true}).fill('1000');await page.getByRole('button',{name:'حفظ التعديل',exact:true}).click();await expect(page.getByRole('alert')).toContainText('٩٩٩');
  await page.getByRole('textbox',{name:'الكمية',exact:true}).fill('٩٩٩');await page.getByRole('textbox',{name:'ملاحظة على الصنف',exact:true}).fill('');await page.getByRole('button',{name:'حفظ التعديل',exact:true}).click();
