@@ -1,0 +1,69 @@
+import { money, price, productById, type Transaction } from "./model";
+import { printerDefaults, receiptNumber, type PrinterSettings } from './printing';
+export function ReceiptPreview({ transaction, settings = printerDefaults }: { transaction: Transaction; settings?: PrinterSettings }) {
+  const totals = transaction.pricing || price(transaction.sale);
+  return (
+    <section className="receipt-paper" aria-label="معاينة الإيصال">
+      <header>
+        {settings.logoDataUrl && <img className="receipt-logo" src={settings.logoDataUrl} alt=""/>}
+        <h3>{settings.merchant}</h3>
+        <p>{settings.address}</p>
+        {settings.phone && <p>الهاتف: {settings.phone}</p>}
+        {settings.taxNumber && <p>الرقم الضريبي: {settings.taxNumber}</p>}
+        <p>إيصال #{receiptNumber(transaction.sale.id, settings)}</p>
+        <small>
+          {new Date(transaction.sale.createdAt).toLocaleString("ar-IQ")}
+        </small>
+      </header>
+      <table>
+        <thead>
+          <tr>
+            <th>الصنف</th>
+            <th>العدد</th>
+            <th>المبلغ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {transaction.sale.lines.map((l) => (
+            <tr key={l.id}>
+              <td>{productById(l.productId).name}</td>
+              <td>{l.scaleWeight ? `${l.scaleWeight} كغ` : l.quantity}</td>
+              <td>{money(totals.rows.find((r) => r.id === l.id)!.net)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div>
+        <span>المجموع قبل الخصم</span>
+        <span>{money(totals.subtotal)}</span>
+      </div>
+      <div>
+        <span>الخصومات والعروض</span>
+        <span>
+          {money(
+            totals.itemDiscount +
+              totals.promotions +
+              totals.basketDiscount +
+              totals.reward,
+          )}
+        </span>
+      </div>
+      <div>
+        <span>المبلغ الخاضع للضريبة</span>
+        <span>{money(totals.taxable)}</span>
+      </div>
+      <div>
+        <span>الضريبة</span>
+        <span>{money(totals.tax)}</span>
+      </div>
+      <div className="receipt-total">
+        <strong>الإجمالي</strong>
+        <strong>{money(transaction.total)}</strong>
+      </div>
+      <footer>
+        {transaction.status === "void" ? "معاملة ملغاة" : settings.footer}
+        <small>إيصال تجريبي · غير صالح للاستخدام المالي</small>
+      </footer>
+    </section>
+  );
+}
