@@ -2,15 +2,15 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Printer, Save } from 'lucide-react';
 import { normalizePrinterSettings, printerStorageKey, testPrintReceipt, type PrintReceipt, type PrinterSettings as Settings } from './printing';
 
-export function PrinterSettings({ value, onSave, onPreview, onDirtyChange, initialTab = "hardware", storeContent }: {initialTab?: "hardware" | "store" | "receipt"; storeContent?: ReactNode; value: Settings; onSave: (settings: Settings) => void; onPreview: (receipt: PrintReceipt, settings: Settings) => void; onDirtyChange: (dirty: boolean) => void}) {
+export function PrinterSettings({ saveAction, value, onSave, onPreview, onDirtyChange, initialTab = "hardware", storeContent }: { saveAction?: {current: ((done:()=>void)=>void) | null}; initialTab?: "hardware" | "store" | "receipt"; storeContent?: ReactNode; value: Settings; onSave: (settings: Settings) => void; onPreview: (receipt: PrintReceipt, settings: Settings) => void; onDirtyChange: (dirty: boolean) => void}) {
   const [tab,setTab] = useState(initialTab);
   const [draft, setDraft] = useState(value);
   const [message, setMessage] = useState('');
   useEffect(() => {onDirtyChange(JSON.stringify(draft) !== JSON.stringify(value));}, [draft, value, onDirtyChange]);
   const update = <K extends keyof Settings>(key: K, next: Settings[K]) => {setDraft(d => ({...d, [key]: next})); setMessage('تغييرات غير محفوظة');};
-  function save() {
+  function save(done?:()=>void) {
     const settings = normalizePrinterSettings(draft);
-    try {localStorage.setItem(printerStorageKey, JSON.stringify(settings)); onSave(settings); setDraft(settings); setMessage('تم حفظ إعدادات الطابعة في هذا المتصفح');}
+    try {localStorage.setItem(printerStorageKey, JSON.stringify(settings)); onSave(settings); setDraft(settings); setMessage('تم حفظ إعدادات الطابعة في هذا المتصفح'); done?.();}
     catch {setMessage('تعذر الحفظ. تحقق من السماح بالتخزين في المتصفح.');}
   }
   function selectLogo(file?: File) {
@@ -24,6 +24,7 @@ export function PrinterSettings({ value, onSave, onPreview, onDirtyChange, initi
     reader.onerror = () => setMessage('تعذر قراءة ملف الشعار');
     reader.readAsDataURL(file);
   }
+  useEffect(()=>{if(saveAction) saveAction.current=save;});
   return <section className="printer-settings">
     <div className="settings-sidebar" role="tablist" aria-orientation="vertical" aria-label="أقسام الإعدادات">{([{id:"hardware",label:"الأجهزة"},{id:"store",label:"المتجر"},{id:"receipt",label:"الإيصال"}] as const).map(item=><button key={item.id} role="tab" aria-selected={tab===item.id} className={tab===item.id?"active":""} onClick={()=>setTab(item.id)}>{item.label}</button>)}</div>
     <div className="settings-content">
@@ -63,7 +64,7 @@ export function PrinterSettings({ value, onSave, onPreview, onDirtyChange, initi
     {draft.logoDataUrl && <div className="logo-preview"><img src={draft.logoDataUrl} alt="معاينة شعار المتجر"/><button className="btn" onClick={() => update('logoDataUrl','')}>إزالة الشعار</button></div>}
     </fieldset></div>
     <div className="printer-actions">
-      <button className="btn primary" onClick={save}><Save size={18}/> حفظ الإعدادات</button>
+      <button className="btn primary" onClick={()=>save()}><Save size={18}/> حفظ الإعدادات</button>
       <button className="btn" disabled={!draft.enabled} onClick={() => onPreview(testPrintReceipt, draft)}><Printer size={18}/> معاينة اختبار</button>
     </div>
     {message && <p role="status">{message}</p>}

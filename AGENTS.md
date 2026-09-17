@@ -111,3 +111,11 @@ Offers shortcut decision (2026-09-17): Remove the offers/coupons toolbar button 
 Transaction simplicity decision (2026-09-17): Remove the remaining Sales tab button; open the transaction list directly with its receipt-number search.
 
 Back-control appearance decision (2026-09-17): All app back and dismiss controls use the theme-matched square X icon button. Preserve destination-specific accessible names, navigation behavior and unsaved-change protection; this supersedes text-only back-button styling.
+
+Toolbar consistency decision (2026-09-17): All bottom POS toolbar icon buttons share the price-check button’s bright icon color, dark background, border, corner radius and hover/pressed styling.
+
+Cash-drawer spacing decision (2026-09-17): Keep the drawer dialog compact with no extra field margins, 8px label-to-select spacing and 20px between the reason field and action.
+
+Settings organization decision (2026-09-17): Reserve the sidebar grid for the outer settings workspace. Inner category, wholesale and offer forms stack vertically with aligned responsive fields, clear bordered disclosure sections, consistent spacing and local save actions. Global settings actions follow content without covering fields.
+
+Unsaved changes decision (2026-09-17): Ask حفظ التغييرات؟ in a compact modal with نعم / لا. Yes runs existing validated save and approval workflows before navigation; No discards and leaves; X cancels navigation and preserves the draft.

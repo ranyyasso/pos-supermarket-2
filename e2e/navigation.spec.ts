@@ -28,12 +28,12 @@ test('product search survives child form cancellation and dirty edits require a 
   await expect(page.getByRole('textbox',{name:'رمز الميزان (5 أرقام)',exact:true})).toHaveCount(0);
   await page.getByRole('textbox',{name:'اسم الصنف',exact:true}).fill('مسودة صنف');
   await button(page,'إلغاء').click();
-  await expect(page.getByRole('heading',{name:'تغييرات غير محفوظة',exact:true})).toBeVisible();
-  await expect(button(page,'متابعة التحرير')).toBeFocused();
-  await button(page,'متابعة التحرير').click();
+  await expect(page.getByRole('heading',{name:'حفظ التغييرات؟',exact:true})).toBeVisible();
+  await expect(button(page,'نعم')).toBeFocused();
+  await button(page,'العودة إلى التحرير').click();
   await expect(page.getByRole('textbox',{name:'اسم الصنف',exact:true})).toHaveValue('مسودة صنف');
   await button(page,'العودة إلى الأصناف').click();
-  await button(page,'تجاهل التغييرات والمغادرة').click();
+  await button(page,'لا').click();
   await expect(page.getByRole('heading',{name:'إدارة الأصناف',exact:true})).toBeVisible();
   await expect(page.locator('.managed-product')).toHaveCount(1);
   await page.getByRole('combobox',{name:'الحالة',exact:true}).selectOption('disabled');
@@ -46,7 +46,7 @@ test('printer draft survives cancelled navigation and saved settings persist',as
   const merchant=page.getByRole('textbox',{name:'اسم المتجر',exact:true});
   await merchant.fill('متجر المسودة');
   await button(page,'العودة إلى شاشة البيع').click();
-  await button(page,'متابعة التحرير').click();
+  await button(page,'العودة إلى التحرير').click();
   await expect(merchant).toHaveValue('متجر المسودة');
   await button(page,'حفظ الإعدادات').click();
   await button(page,'العودة إلى شاشة البيع').click();
@@ -58,7 +58,7 @@ test('printer draft survives cancelled navigation and saved settings persist',as
   await expect(merchant).toHaveValue('متجر المسودة');
   await merchant.fill('لا تحفظ هذا');
   await button(page,'العودة إلى شاشة البيع').click();
-  await button(page,'تجاهل التغييرات والمغادرة').click();
+  await button(page,'لا').click();
   await button(page,'الإعدادات').click();
   await page.getByRole('tab',{name:'المتجر',exact:true}).click();
   await expect(merchant).toHaveValue('متجر المسودة');
@@ -75,10 +75,10 @@ test('inventory opens receiving directly without view buttons and protects its d
   await expect(page.locator('.form-error')).toContainText('الباركود');
   await expect(page.getByRole('textbox',{name:'رمز المدير',exact:true})).toHaveCount(0);
   await button(page,'إدارة الأصناف').click();
-  await button(page,'متابعة التحرير').click();
+  await button(page,'العودة إلى التحرير').click();
   await expect(page.getByRole('textbox',{name:'الكمية المستلمة',exact:true})).toHaveValue('3');
   await button(page,'العودة إلى شاشة البيع').click();
-  await button(page,'تجاهل التغييرات والمغادرة').click();
+  await button(page,'لا').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 

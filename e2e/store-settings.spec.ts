@@ -34,6 +34,6 @@ test('parked-sale count persists and search only advertises number or note',asyn
 });
 test('wholesale and offer drafts are protected on exit and cancelled approval preserves input',async({page})=>{
   await settings(page);await page.getByText('البيع بالجملة',{exact:true}).click();await field(page,'سعر الجملة الاختياري').fill('7000');await button(page,'حفظ سعر الجملة').click();await button(page,'إغلاق').click();await expect(field(page,'سعر الجملة الاختياري')).toHaveValue('7000');
-  await button(page,'العودة إلى شاشة البيع').click();await expect(page.getByRole('heading',{name:'تغييرات غير محفوظة',exact:true})).toBeVisible();await button(page,'متابعة التحرير').click();await expect(field(page,'سعر الجملة الاختياري')).toHaveValue('7000');await button(page,'حفظ سعر الجملة').click();await approve(page);
-  await page.getByText('العروض ووضع التجربة',{exact:true}).click();await field(page,'اسم العرض').fill('مسودة');await button(page,'العودة إلى شاشة البيع').click();await button(page,'تجاهل التغييرات والمغادرة').click();await expect(page.getByRole('dialog')).toHaveCount(0);
+  await button(page,'العودة إلى شاشة البيع').click();await expect(page.getByRole('heading',{name:'حفظ التغييرات؟',exact:true})).toBeVisible();await button(page,'العودة إلى التحرير').click();await expect(field(page,'سعر الجملة الاختياري')).toHaveValue('7000');await button(page,'حفظ سعر الجملة').click();await approve(page);
+  await page.getByText('العروض ووضع التجربة',{exact:true}).click();await field(page,'اسم العرض').fill('مسودة');await button(page,'العودة إلى شاشة البيع').click();await button(page,'لا').click();await expect(page.getByRole('dialog')).toHaveCount(0);
 });

@@ -13,12 +13,12 @@ test('receiving defaults allow navigation but edited cost and barcode remain pro
   await field(page,'سعر القطعة').fill('6100');await b(page,'التقارير').click();
   await expect(page.locator('.unsaved-guard')).toBeVisible();
   await expect(b(page,'العودة إلى التحرير')).not.toContainText('البيع');
-  await b(page,'متابعة التحرير').click();await expect(field(page,'سعر القطعة')).toHaveValue('6100');
+  await b(page,'العودة إلى التحرير').click();await expect(field(page,'سعر القطعة')).toHaveValue('6100');
   await field(page,'سعر القطعة').fill('');await b(page,'التقارير').click();
   await expect(page.locator('.unsaved-guard')).toHaveCount(0);
   await b(page,'المخزون والاستلام').click();
   await field(page,'باركود').fill('100010');await b(page,'التقارير').click();
-  await b(page,'متابعة التحرير').click();await expect(field(page,'باركود')).toHaveValue('100010');
+  await b(page,'العودة إلى التحرير').click();await expect(field(page,'باركود')).toHaveValue('100010');
 });
 
 test('label copies are contextual and invalid copies cannot print a stale preview',async({page})=>{
@@ -39,7 +39,7 @@ test('collapsed settings retain edits and test preview keeps setup instructions 
   await expect(field(page,'اسم المتجر')).toBeHidden();
   await page.getByRole('tab',{name:'المتجر',exact:true}).click();await field(page,'اسم المتجر').fill('متجر مبسط');
   await page.getByRole('tab',{name:'الأجهزة',exact:true}).click();await b(page,'العودة إلى شاشة البيع').click();
-  await b(page,'متابعة التحرير').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();
+  await b(page,'العودة إلى التحرير').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();
   await expect(field(page,'اسم المتجر')).toHaveValue('متجر مبسط');
   await b(page,'حفظ الإعدادات').click();await b(page,'معاينة اختبار').click();
   const frame=page.frameLocator('iframe');

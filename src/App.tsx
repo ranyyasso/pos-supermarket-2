@@ -225,6 +225,10 @@ export function App() {
   const [wholesaleDirty,setWholesaleDirty] = useState(false);
   const [offersDirty,setOffersDirty] = useState(false);
   const [categoriesDirty,setCategoriesDirty] = useState(false);
+  const printerSave = useRef<((done:()=>void)=>void) | null>(null);
+  const categorySave = useRef<((done:()=>void)=>void) | null>(null);
+  const wholesaleSave = useRef<((done:()=>void)=>void) | null>(null);
+  const offerSave = useRef<((done:()=>void)=>void) | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<{target: Modal} | null>(null);
   const [productReturn, setProductReturn] = useState<"products" | "inventory" | null>(null);
   const [receiveBarcode,setReceiveBarcode] = useState("");
@@ -380,7 +384,7 @@ export function App() {
     productBaseline.current = JSON.stringify({barcode:product.barcode,scaleCode:product.scaleCode||"",name:product.name,category:product.category,price:String(product.price),cost:product.cost === undefined ? "" : String(product.cost),supplier:product.supplier || "",stock:String(product.stock),minStock:String(product.minStock || 0),unit:product.unit || "piece",tax:String(product.tax),expiry:product.expiry || ""});
     open("newProduct");
   }
-  function saveNewProduct(addToBasket = false) {
+  function saveNewProduct(addToBasket = false, done?:()=>void) {
     const barcode = normalizeDigits(newProduct.barcode).replace(/\s/g, "");
     const scaleCode=normalizeDigits(newProduct.scaleCode).replace(/\D/g,"");
     const priceValue = Number(normalizeDigits(newProduct.price));
@@ -412,6 +416,7 @@ export function App() {
         if(productReturn === "inventory"){setInventoryProductId(product.id);setReceiveBarcode(product.barcode);setReceiveCost(newProduct.cost);setReceiveCategory(product.category);}
         if(addToBasket) addProduct(product);
         announce(existing ? "تم تحديث الصنف" : "تم تسجيل الصنف ويمكن مسح باركوده الآن");
+        done?.();
       } catch (e) {setError(e instanceof Error ? e.message : "تعذر حفظ الصنف");}
     });
   }
@@ -429,7 +434,7 @@ export function App() {
     setReceiveQuantity("");setReceiveCategory("");setReceiveCost("");setReceiveBarcode("");setInventoryProductId("");
     receivingBaseline.current=JSON.stringify(["","","","",""]);
   }
-  function receiveStock() {
+  function receiveStock(done?:()=>void) {
     const quantity=Number(normalizeDigits(receiveQuantity));
     const product=products.find(p=>p.id===inventoryProductId);
     if(!product || product.available===false){setError("ابحث عن الباركود أولاً لتحديد الصنف");return;}
@@ -438,7 +443,7 @@ export function App() {
     if(!receiveCategory || product.category!==receiveCategory){setError("اختر الفئة المطابقة للصنف");return;}
     if(!receiveCost.trim() || !Number.isSafeInteger(Number(receiveCost)) || Number(receiveCost)<0){setError("أدخل سعر الشراء");return;}
     approve(`استلام مخزون · ${product.name} · ${quantity}`,()=>{
-      try{receiveInventory(product.id,quantity,Number(receiveCost));setCatalogVersion(v=>v+1);resetReceiving();setModal("inventory");announce("تم استلام المخزون وتسجيل الحركة");}
+      try{receiveInventory(product.id,quantity,Number(receiveCost));setCatalogVersion(v=>v+1);resetReceiving();setModal("inventory");announce("تم استلام المخزون وتسجيل الحركة");done?.();}
       catch(e){setError(e instanceof Error?e.message:"تعذر تحديث المخزون");}
     });
   }
@@ -724,6 +729,16 @@ export function App() {
     if(target === "history") setHistoryTab("sales");
     open(target);
   }
+  function saveBeforeLeaving() {
+    if(!pendingNavigation) return;
+    const target=pendingNavigation.target;
+    setPendingNavigation(null);
+    if(modal==="newProduct") {saveNewProduct(!productReturn && !editingProductId,()=>performNavigation(target));return;}
+    if(modal==="inventory") {receiveStock(()=>performNavigation(target));return;}
+    const saves=[printerDirty?printerSave.current:null,categoriesDirty?categorySave.current:null,wholesaleDirty?wholesaleSave.current:null,offersDirty?offerSave.current:null].filter((save):save is (done:()=>void)=>void=>!!save);
+    const next=()=>{const save=saves.shift();if(save) save(next);else performNavigation(target);};
+    next();
+  }
   function navigate(target: Modal) {
     if(target === modal) return;
     if(dirty) {setPendingNavigation({target}); return;}
@@ -978,7 +993,7 @@ export function App() {
         <Dialog.Portal>
           <Dialog.Overlay className={`dialog-overlay ${workspace ? "workspace-overlay" : ""}`} />
           <Dialog.Content
-            className={`dialog-content ${workspace && !approval && !printDocument ? `workspace-shell ${management ? "management-shell" : ""}` : ""} ${printDocument ? "thermal-dialog" : modal === "payment" && !approval ? "payment-dialog" : modal === "newProduct" ? "management-dialog" : ""}`}
+            className={`dialog-content ${workspace && !approval && !printDocument && !pendingNavigation ? `workspace-shell ${management ? "management-shell" : ""}` : ""} ${printDocument ? "thermal-dialog" : modal === "payment" && !approval ? "payment-dialog" : modal === "newProduct" ? "management-dialog" : ""}`}
             dir="rtl"
             onEscapeKeyDown={(e) => {
               if (
@@ -1002,7 +1017,7 @@ export function App() {
             <div className="dialog-header">
               <div>
                 <Dialog.Title>
-                  {pendingNavigation ? "تغييرات غير محفوظة" : printDocument ? "معاينة الطباعة الحرارية" : approval ? "موافقة المدير" : modal === "history" && selectingReturn ? "اختر فاتورة للاسترجاع" : modal ? titles[modal] : ""}
+                  {pendingNavigation ? "حفظ التغييرات؟" : printDocument ? "معاينة الطباعة الحرارية" : approval ? "موافقة المدير" : modal === "history" && selectingReturn ? "اختر فاتورة للاسترجاع" : modal ? titles[modal] : ""}
                 </Dialog.Title>
               </div>
               {!processing && (modal !== "receipt" || !!printDocument) && (
@@ -1025,7 +1040,7 @@ export function App() {
                 {labelProduct && <label className="label-copies">عدد الملصقات<input type="number" min="1" max="100" value={labelCopies} onChange={e=>{const copies=e.target.value;setLabelCopies(copies);if(Number.isInteger(Number(copies))&&Number(copies)>=1&&Number(copies)<=100)previewProductLabel(labelProduct,copies);}}/></label>}
                 {labelProduct && (!Number.isInteger(Number(labelCopies)) || Number(labelCopies)<1 || Number(labelCopies)>100) ? <p role="alert">أدخل عدد الملصقات من 1 إلى 100</p> : <iframe title="معاينة الإيصال الحراري" srcDoc={printDocument}/>}
               </div>}
-              {pendingNavigation && <section className="unsaved-guard" role="alert" aria-label="تغييرات غير محفوظة"><p>تجاهل التغييرات والمغادرة؟</p><div className="form-actions"><button type="button" autoFocus className="btn primary" onClick={() => setPendingNavigation(null)}>متابعة التحرير</button><Btn variant="danger" onClick={() => performNavigation(pendingNavigation.target)}>تجاهل التغييرات والمغادرة</Btn></div></section>}
+              {pendingNavigation && <section className="unsaved-guard" role="alert" aria-label="حفظ التغييرات؟"><div className="form-actions"><button type="button" autoFocus className="btn primary" onClick={saveBeforeLeaving}>نعم</button><Btn onClick={()=>performNavigation(pendingNavigation.target)}>لا</Btn></div></section>}
               <div className="dialog-regular" hidden={!!printDocument || !!pendingNavigation}>
               {modal==='confirm'&&confirmation&&!approval&&<><p>{confirmation.title}</p>{confirmation.reason&&<Field label="السبب" value={aux} onChange={setAux}/>}<Btn variant="primary full" disabled={confirmation.reason&&!aux.trim()} onClick={()=>confirmation.run(aux)}>تأكيد المتابعة</Btn><Btn variant="dialog-close-square" label="رجوع" onClick={()=>open(confirmationReturn.current)}><X size={20} aria-hidden="true"/></Btn></>}
               {approval && (
@@ -1109,7 +1124,7 @@ export function App() {
                         <div className="receiving-search" onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupReceiving();}}}><label>باركود<input autoFocus inputMode="numeric" value={receiveBarcode} onChange={e=>{setReceiveBarcode(normalizeDigits(e.target.value));setInventoryProductId("");setReceiveCost("");}}/></label><Btn onClick={lookupReceiving}>بحث</Btn></div>
                         {inventoryProductId && <div className="receiving-product receiving-match" role="status"><strong>{productById(inventoryProductId).name}</strong><small>المتوفر: {productById(inventoryProductId).stock}</small></div>}
                         <label>سعر القطعة<input inputMode="numeric" value={receiveCost} onChange={e=>setReceiveCost(normalizeDigits(e.target.value))}/></label><label>الكمية المستلمة<input inputMode="numeric" value={receiveQuantity} onChange={e=>setReceiveQuantity(normalizeDigits(e.target.value).replace(/\D/g,''))}/></label>
-                        <div className="receiving-actions"><Btn variant="primary" onClick={receiveStock}>تأكيد الاستلام</Btn></div>
+                        <div className="receiving-actions"><Btn variant="primary" onClick={()=>receiveStock()}>تأكيد الاستلام</Btn></div>
                       </div>
                     </>
                   )}
@@ -1609,18 +1624,18 @@ export function App() {
                       <div className="report-actions"><Btn variant="primary" disabled={!reportRangeValid} onClick={exportReport}><Download size={18}/> تصدير CSV</Btn></div>
                     </section>
                   )}
-                  {modal === "settings" && <PrinterSettings value={printerSettings} onSave={setPrinterSettings} onPreview={previewPrint} onDirtyChange={setPrinterDirty} storeContent={<>
-                    <details className="disclosure"><summary>الفئات</summary><CategorySettings onSave={()=>setCatalogVersion(v=>v+1)} onDirtyChange={setCategoriesDirty} approve={approve}/></details>
-                    <details className="disclosure"><summary>البيع بالجملة</summary><WholesaleSettings onDirtyChange={setWholesaleDirty} value={salesSettings} onSave={setSalesSettings} approve={approve}/></details>
-                    <details className="disclosure"><summary>العروض ووضع التجربة</summary><OfferSettings onDirtyChange={setOffersDirty} value={salesSettings} onSave={setSalesSettings} approve={approve}/></details>
+                  {modal === "settings" && <PrinterSettings saveAction={printerSave} value={printerSettings} onSave={setPrinterSettings} onPreview={previewPrint} onDirtyChange={setPrinterDirty} storeContent={<>
+                    <details className="disclosure"><summary>الفئات</summary><CategorySettings saveAction={categorySave} onSave={()=>setCatalogVersion(v=>v+1)} onDirtyChange={setCategoriesDirty} approve={approve}/></details>
+                    <details className="disclosure"><summary>البيع بالجملة</summary><WholesaleSettings saveAction={wholesaleSave} onDirtyChange={setWholesaleDirty} value={salesSettings} onSave={setSalesSettings} approve={approve}/></details>
+                    <details className="disclosure"><summary>العروض ووضع التجربة</summary><OfferSettings saveAction={offerSave} onDirtyChange={setOffersDirty} value={salesSettings} onSave={setSalesSettings} approve={approve}/></details>
                     {salesSettings.demoMode !== false && <details className="demo-maintenance"><summary>صيانة النسخة التجريبية</summary><p>إعادة بيانات البيع التجريبية تتطلب تأكيداً وموافقة المدير.</p><Btn variant="danger" disabled={printerDirty || wholesaleDirty || offersDirty} onClick={() => ask("سيتم حذف بيانات هذه النسخة التجريبية فقط. متابعة؟",()=>approve("إعادة بيانات التجربة", () => {dispatch({ type: "reset" });setModal(null);announce("تمت إعادة بيانات التجربة");}))}>إعادة بيانات التجربة</Btn></details>}
                   </>}/>}
                   {modal === "drawer" && (
-                    <>
+                    <div className="drawer-dialog-content">
                       {drawerOpen && <p role="status">تمت محاكاة فتح الدرج</p>}
                       {!drawerOpen ? (
                         <>
-                          <label className="field">سبب فتح الدرج<select value={aux} onChange={e=>setAux(e.target.value)}><option value="">اختر السبب</option>{printerSettings.drawerReasons.map(reason=><option key={reason} value={reason}>{reason}</option>)}</select></label>
+                          <label className="field"><span>سبب فتح الدرج</span><select value={aux} onChange={e=>setAux(e.target.value)}><option value="">اختر السبب</option>{printerSettings.drawerReasons.map(reason=><option key={reason} value={reason}>{reason}</option>)}</select></label>
                           <Btn
                             variant="primary full"
                             disabled={!aux.trim()}
@@ -1657,7 +1672,7 @@ export function App() {
                           تأكيد إغلاق الدرج
                         </Btn>
                       )}
-                    </>
+                    </div>
                   )}
                   {(modal === "history" || modal === "audit") && (
                     <>
