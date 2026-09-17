@@ -4,6 +4,8 @@ import {
   price,
   cashPayment,
   couponError,
+  discountConflict,
+  legacyPrice,
   seed,
   reducer,
   refundValue,
@@ -26,7 +28,17 @@ describe("IQD pricing", () => {
     expect(t.tax).toBe(1600);
     expect(t.total).toBe(17600);
   });
-  it("applies item then basket discounts before tax", () => {
+  it("uses only configured wholesale prices at their minimum quantity", () => {
+    const settings = {wholesaleEnabled:true,wholesale:{p1:{price:7000,minimum:2}}};
+    const wholesale = price({...sale(),service:'dinein'},settings);
+    expect(wholesale.rows[0].gross).toBe(14000);
+    expect(wholesale.wholesaleSaving).toBe(2000);
+    expect(wholesale.total).toBe(15400);
+    expect(price({...sale(),service:'dinein',lines:[{id:'a',productId:'p1',quantity:1}]},settings).subtotal).toBe(8000);
+    expect(price({...sale(),service:'dinein'},{...settings,wholesaleEnabled:false}).subtotal).toBe(16000);
+    expect(price({...sale(),service:'dinein'}, {...settings,wholesale:{}}).subtotal).toBe(16000);
+  });
+  it("prevents combining item and basket discounts, retaining historical calculations", () => {
     const s = sale();
     s.lines = [
       {
@@ -35,7 +47,9 @@ describe("IQD pricing", () => {
       } as (typeof s.lines)[0],
     ];
     const t = price({ ...s, discount: { kind: "percent", value: 10 } });
-    expect(t.total).toBe(14256);
+    expect(t.total).toBe(15840);
+    expect(discountConflict({...s,discount:{kind:"percent",value:10}})).toBeDefined();
+    expect(legacyPrice({...s,discount:{kind:"percent",value:10}}).total).toBe(14256);
   });
   it("automatically applies cola pairs and reverses when quantity drops", () => {
     const s = {
@@ -170,4 +184,8 @@ describe("payments and transactions", () => {
       { method: "card", amount: 3800 },
     ]);
   });
+});
+it('deletes only the selected held sale without touching active basket or transactions',()=>{
+ const state=reducer(seed(),{type:'hold'});const result=reducer(state,{type:'deleteHeld',id:state.held[0].id});
+ expect(result.held).toHaveLength(0);expect(result.sale).toBe(state.sale);expect(result.transactions).toBe(state.transactions);expect(result.audit[0].action).toBe('حذف بيع معلق');expect(reducer(result,{type:'deleteHeld',id:'missing'})).toBe(result);
 });

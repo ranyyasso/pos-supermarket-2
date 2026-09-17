@@ -4,6 +4,14 @@ import { price, type Transaction } from './model';
 const sale: Transaction['sale'] = {id:'test', lines:[{id:'l1',productId:'p1',quantity:1}],service:'takeaway',note:'',ageRecords:[],reward:false,createdAt:'2026-09-14T10:00:00Z'};
 const tx: Transaction = {sale,total:price(sale).total,payments:[{id:'cash',method:'cash',amount:8800,tendered:10000,change:1200}],status:'completed',refunded:{}};
 describe('thermal printing', () => {
+  it('prints wholesale savings and their reason without subtracting them twice',()=>{
+    const wholesaleSale={...sale,service:'dinein' as const};
+    const pricing=price(wholesaleSale,{wholesaleEnabled:true,wholesale:{p1:{price:7000,minimum:1}}});
+    const receipt=salePrintReceipt({...tx,sale:wholesaleSale,pricing,total:pricing.total});
+    expect(receipt.totals[0].amount).toBe(8000);
+    expect(receipt.totals[1]).toEqual({label:'سعر الجملة · بسكويت حليب · علبة',amount:-1000});
+    expect(receipt.totals[0].amount+receipt.totals[1].amount+receipt.totals[2].amount).toBe(pricing.total);
+  });
   it('uses defaults for missing or invalid settings', () => {
     expect(normalizePrinterSettings(null)).toEqual(printerDefaults);
     expect(normalizePrinterSettings({width:42,margin:NaN,fontSize:Infinity}).width).toBe(80);
@@ -25,7 +33,8 @@ describe('thermal printing', () => {
     expect(html).toContain('lang="ar" dir="rtl"');
     expect(html).toContain(`width:${width}mm`);
     expect(html).toContain(`padding-bottom:${printerDefaults.margin + printerDefaults.feed}mm`);
-    expect(html).toContain('@page { size: auto; margin: 0; }');
+    expect(html).toContain(`@page { size: ${width}mm auto; margin: 0; }`);
+    expect(html).toContain(`.thermal-paper{width:${width}mm;margin:0 auto;max-width:none;box-shadow:none}`);
     expect(html).toContain('.print-controls{display:none!important}');
     expect(html).toContain('await document.fonts.ready');
     expect(html).toContain('لم يُرسل الإيصال إلى الطابعة');

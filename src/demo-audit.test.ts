@@ -1,11 +1,12 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {seed,newSale,price,reducer,cashPayment,refundValue,refundAllocations,checkoutError,validState,loadState,validPayments,normalizeDigits,normalizePhone,type Sale,type State} from './model';
+import {seed,newSale,price,legacyPrice,reducer,cashPayment,refundValue,refundAllocations,checkoutError,validState,loadState,validPayments,normalizeDigits,normalizePhone,type Sale,type State} from './model';
 const complete=(s:State)=>reducer(s,{type:'complete',payments:price(s.sale).total ? [cashPayment(price(s.sale).total,price(s.sale).total)] : []});
 afterEach(()=>vi.unstubAllGlobals());
 describe('client demo regression checks',()=>{
  it('rounds invoice tax consistently after loyalty allocation',()=>{
   const s=seed();s.sale.customer='c1';s.sale.reward=true;
-  expect(price(s.sale)).toMatchObject({taxable:39000,tax:3900,total:42900});
+  expect(legacyPrice(s.sale)).toMatchObject({taxable:39000,tax:3900,total:42900});
+  expect(price(s.sale).reward).toBe(0);
  });
  it('stores receipt pricing and caps legacy refunds at their recorded total',()=>{
   const s=complete(seed());expect(s.transactions[0].pricing?.total).toBe(s.transactions[0].total);
@@ -31,21 +32,21 @@ describe('client demo regression checks',()=>{
  });
  it('does not redeem a reward without its full eligible value',()=>{
   const s=seed();s.sale.customer='c1';s.sale.reward=true;s.sale.lines=[{id:'cola',productId:'p10',quantity:1}];
-  expect(price(s.sale).reward).toBe(0);expect(checkoutError(s)).toContain('٥٬٠٠٠');
-  expect(complete(s)).toBe(s);
+  expect(price(s.sale).reward).toBe(0);expect(checkoutError(s)).toBeUndefined();
+  expect(complete(s).customers).toEqual(s.customers);
  });
  it('rejects reuse of loyalty points in a recalled parked sale',()=>{
   const s=seed();s.sale.reward=true;s.sale.customer='c1';s.customers[0].points=100;
-  expect(checkoutError(s)).toContain('رصيد');expect(complete(s)).toBe(s);
+  expect(checkoutError(s)).toBeUndefined();expect(price(s.sale).reward).toBe(0);expect(complete(s).customers).toEqual(s.customers);
  });
- it('restores loyalty on void exactly once',()=>{
+ it('does not mutate disabled loyalty on a new sale or its void',()=>{
   let s=seed();s.sale.customer='c1';s.sale.reward=true;s=complete(s);
-  expect(s.customers.find(c=>c.id==='c1')!.points).toBe(192);
+  expect(s.customers.find(c=>c.id==='c1')!.points).toBe(650);
   s=reducer(s,{type:'void',id:'553',reason:'اختبار'});
   expect(s.customers.find(c=>c.id==='c1')!.points).toBe(650);
   expect(reducer(s,{type:'void',id:'553',reason:'اختبار'})).toBe(s);
  });
- it('reverses earned points and restores reward on a full refund',()=>{
+ it('does not mutate disabled loyalty on a new sale or its refund',()=>{
   let s=seed();s.sale.customer='c1';s.sale.reward=true;s=complete(s);
   const tx=s.transactions[0];
   for(const line of tx.sale.lines)s=reducer(s,{type:'refund',id:'553',selected:{[line.id]:line.quantity},reason:'اختبار',cash:false});

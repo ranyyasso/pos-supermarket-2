@@ -1,7 +1,7 @@
-import { money, price, productById, type Transaction } from "./model";
+import { dateTime, money, legacyPrice, productById, type Transaction } from "./model";
 import { printerDefaults, receiptNumber, type PrinterSettings } from './printing';
 export function ReceiptPreview({ transaction, settings = printerDefaults }: { transaction: Transaction; settings?: PrinterSettings }) {
-  const totals = transaction.pricing || price(transaction.sale);
+  const totals = transaction.pricing || legacyPrice(transaction.sale);
   return (
     <section className="receipt-paper" aria-label="معاينة الإيصال">
       <header>
@@ -12,7 +12,7 @@ export function ReceiptPreview({ transaction, settings = printerDefaults }: { tr
         {settings.taxNumber && <p>الرقم الضريبي: {settings.taxNumber}</p>}
         <p>إيصال #{receiptNumber(transaction.sale.id, settings)}</p>
         <small>
-          {new Date(transaction.sale.createdAt).toLocaleString("ar-IQ")}
+          {dateTime(transaction.sale.createdAt)}
         </small>
       </header>
       <table>
@@ -35,9 +35,9 @@ export function ReceiptPreview({ transaction, settings = printerDefaults }: { tr
       </table>
       <div>
         <span>المجموع قبل الخصم</span>
-        <span>{money(totals.subtotal)}</span>
+        <span>{money(totals.subtotal + (totals.wholesaleSaving || 0))}</span>
       </div>
-      <div>
+      {totals.savings?.length ? totals.savings.map((saving,index)=><div key={index}><span>{saving.reason}</span><span>− {money(saving.amount)}</span></div>) : <div>
         <span>الخصومات والعروض</span>
         <span>
           {money(
@@ -47,7 +47,7 @@ export function ReceiptPreview({ transaction, settings = printerDefaults }: { tr
               totals.reward,
           )}
         </span>
-      </div>
+      </div>}
       <div>
         <span>المبلغ الخاضع للضريبة</span>
         <span>{money(totals.taxable)}</span>

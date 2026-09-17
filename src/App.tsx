@@ -1,10 +1,18 @@
+import { loadFavorites, saveFavorites } from './favorites';
+import { CategorySettings } from './CategorySettings';
+import { OfferSettings } from './OfferSettings';
+import { loadSalesSettings } from './salesSettings';
+import { WholesaleSettings } from './WholesaleSettings';
+import { categoryColor, categoryPalette } from "./categoryColors";
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
+import { ReportDetails } from "./ReportDetails";
 import { ReceiptPreview } from "./ReceiptPreview";
 import { PrinterSettings } from "./PrinterSettings";
-import { buildDailyReport, dailyReportCsv } from "./reports";
+import { buildDailyReport, dailyReportCsv, localDay } from "./reports";
 import { loadPrinterSettings, thermalPrintDocument, productLabelDocument, salePrintReceipt, refundPrintReceipt, type PrintReceipt, type PrinterSettings as PrintSettings } from "./printing";
 import {
+  Star,
   Search,
   ScanBarcode,
   ChevronLeft,
@@ -14,7 +22,6 @@ import {
   Undo2,
   Pause,
   FolderOpen,
-  UserRound,
   ShieldCheck,
   Wifi,
   UtensilsCrossed,
@@ -22,15 +29,9 @@ import {
   Percent,
   Ticket,
   Wallet,
-  CreditCard,
-  Smartphone,
-  Split,
   Printer,
-  Mail,
-  MessageSquare,
   X,
   Check,
-  ArrowRight,
   LockKeyhole,
   History,
   RotateCcw,
@@ -52,33 +53,31 @@ import {
   reducer,
   loadState,
   couponError,
+  discountConflict,
   cashPayment,
   refundValue,
   refundAllocations,
   checkoutError,
-  validPayments,
   normalizeDigits,
-  normalizePhone,
   getRecoveryNotice,
   hydrateRegisteredProducts,
   registerProduct,
   updateRegisteredProduct,
   deleteRegisteredProduct,
   hydrateInventory,
-  inventoryMovements,
   changeInventory,
+  receiveInventory,
+  generateInternalBarcode,
   findBarcode,
   type Sale,
   type Line,
   type Product,
   type Payment,
-  type Customer,
   type Transaction,
   type Discount,
 } from "./model";
 type Modal =
   | null
-  | "customer"
   | "discount"
   | "coupon"
   | "price"
@@ -93,21 +92,19 @@ type Modal =
   | "cancel"
   | "payment"
   | "receipt"
-  | "printer"
   | "settings"
+  | "audit"
   | "history"
   | "refund"
   | "drawer"
   | "confirm"
   | "help";
-type Workspace = "products" | "inventory" | "history" | "reports" | "printer";
-const workspaceOrder: Workspace[] = ["products", "inventory", "history", "reports", "printer"];
+type Workspace = "products" | "inventory" | "history" | "reports" | "settings" | "audit" | "newProduct";
+const workspaceOrder: Workspace[] = ["products", "inventory", "history", "reports", "settings", "audit", "newProduct"];
 const workspaceTabs: {id: Workspace; label: string; icon: typeof ShoppingBag}[] = [
-  {id:"products",label:"الأصناف",icon:ShoppingBag},
+  {id:"products",label:"إدارة الأصناف",icon:ShoppingBag},
   {id:"inventory",label:"المخزون والاستلام",icon:FolderOpen},
-  {id:"history",label:"المعاملات",icon:History},
-  {id:"reports",label:"تقارير اليوم",icon:BarChart3},
-  {id:"printer",label:"الطابعة",icon:Printer},
+  {id:"reports",label:"التقارير",icon:BarChart3},
 ];
 hydrateRegisteredProducts();
 hydrateInventory();
@@ -118,18 +115,7 @@ const methods = {
   card: "بطاقة مصرفية",
   contactless: "دفع لاتلامسي",
 };
-const amountText = (value: number) => new Intl.NumberFormat('ar-IQ',{maximumFractionDigits:0}).format(value);
-function savedPayment() {
-  try {
-    const s = loadState(),
-      p = JSON.parse(localStorage.getItem("mizan-payment-v1") || "null");
-    return p?.saleId === s.sale.id && validPayments(p.payments) && p.payments.reduce((sum:number,p:Payment)=>sum+p.amount,0)<price(s.sale).total
-      ? (p.payments as Payment[])
-      : [];
-  } catch {
-    return [];
-  }
-}
+const amountText = (value: number) => new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(value);
 const Stamp = ({ children }: { children: ReactNode }) => (
   <span className="stamp">{children}</span>
 );
@@ -216,7 +202,9 @@ function Field({
 }
 export function App() {
   const [printerSettings, setPrinterSettings] = useState(loadPrinterSettings);
+  const [salesSettings, setSalesSettings] = useState(loadSalesSettings);
   const [printDocument, setPrintDocument] = useState("");
+  const [labelProduct, setLabelProduct] = useState<Product | null>(null);
   const drawerPrintRef = useRef<Transaction | null>(null);
   function previewPrint(receipt: PrintReceipt, settings: PrintSettings = printerSettings, drawerTx?: Transaction) {
     if (!settings.enabled) {
@@ -224,30 +212,47 @@ export function App() {
       return false;
     }
     drawerPrintRef.current = drawerTx?.payments.some(payment => payment.method === 'cash') && settings.drawerKick ? drawerTx : null;
+    setLabelProduct(null);
     setPrintDocument(thermalPrintDocument(receipt, settings));
     return true;
   }
-  function previewProductLabel(product: Product) {
+  function previewProductLabel(product: Product, copies = "1") {
     if(!printerSettings.enabled){setToast("الطباعة الحرارية غير مفعلة في الإعدادات");return;}
-    try{setPrintDocument(productLabelDocument(product,printerSettings));}catch{setToast("تعذر إنشاء ملصق الباركود");}
+    try{const document = productLabelDocument(product,printerSettings,Number(copies));setLabelProduct(product);setLabelCopies(copies);setPrintDocument(document);}catch(e){setToast(e instanceof Error?e.message:"تعذر إنشاء ملصق الباركود");}
   }
-  const [printerReturn, setPrinterReturn] = useState<"settings" | "receipt" | null>(null);
+  const [printerReturn, setPrinterReturn] = useState<"receipt" | null>(null);
+  const [printerDirty, setPrinterDirty] = useState(false);
+  const [wholesaleDirty,setWholesaleDirty] = useState(false);
+  const [offersDirty,setOffersDirty] = useState(false);
+  const [categoriesDirty,setCategoriesDirty] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<{target: Modal} | null>(null);
+  const [productReturn, setProductReturn] = useState<"products" | "inventory" | null>(null);
+  const [receiveBarcode,setReceiveBarcode] = useState("");
+  const [receiveCost,setReceiveCost] = useState("");
+  const receivingBaseline = useRef(JSON.stringify(["","","","",""]));
+  const [labelCopies,setLabelCopies] = useState("1");
+  const [reportFrom,setReportFrom] = useState(localDay(new Date()));
+  const [reportTo,setReportTo] = useState(localDay(new Date()));
+  const [reportView,setReportView] = useState("summary");
+  const productBaseline = useRef(JSON.stringify(emptyNewProduct()));
+  const [productQuery,setProductQuery] = useState("");
+  const [productCategory,setProductCategory] = useState("all");
+  const [productStatus,setProductStatus] = useState("all");
+  const [receiveCategory,setReceiveCategory] = useState("");
   const [storageWarning, setStorageWarning] = useState("");
   const [, setCatalogVersion] = useState(0);
   const [newProduct, setNewProduct] = useState<NewProductDraft>(() => emptyNewProduct());
+  const [favorites,setFavorites]=useState<string[]>(loadFavorites);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [inventoryProductId, setInventoryProductId] = useState(products[0].id);
+  const [inventoryProductId, setInventoryProductId] = useState("");
   const [receiveQuantity, setReceiveQuantity] = useState("");
-  const [receiveSupplier, setReceiveSupplier] = useState("");
-  const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [confirmation,setConfirmation]=useState<{title:string;reason:boolean;run:(reason:string)=>void}|null>(null);
-  function ask(title:string,run:(reason:string)=>void,reason=false){setConfirmation({title,run,reason});open('confirm');}
+  const confirmationReturn = useRef<Modal>(null);
+  function ask(title:string,run:(reason:string)=>void,reason=false){confirmationReturn.current=modal;setConfirmation({title,run,reason});open('confirm');}
   const [state, dispatch] = useReducer(reducer, undefined, loadState),
     [category, setCategory] = useState("all"),
     [search, setSearch] = useState(""),
-    [modal, setModal] = useState<Modal>(() =>
-      savedPayment().length ? "payment" : null,
-    );
+    [modal, setModal] = useState<Modal>(null);
   const [selected, setSelected] = useState<string | null>(null),
     [toast, setToast] = useState(""),
     [error, setError] = useState(""),
@@ -260,13 +265,9 @@ export function App() {
     [pendingProduct, setPendingProduct] = useState<Product | null>(null),
     [checkedProduct, setCheckedProduct] = useState<Product | null>(null);
   const [checkedScale, setCheckedScale] = useState<{priceOverride?:number;scaleWeight?:number}|null>(null);
-  const [customerQuery, setCustomerQuery] = useState(""),
-    [newCustomer, setNewCustomer] = useState(false),
-    [payments, setPayments] = useState<Payment[]>(savedPayment),
-    [method, setMethod] = useState<Payment["method"]>("cash"),
-    [split, setSplit] = useState(() => savedPayment().length > 0),
-    [processing, setProcessing] = useState(false),
-    [payResult, setPayResult] = useState("");
+  const [payments, setPayments] = useState<Payment[]>([]),
+    [splitPayment, setSplitPayment] = useState(false),
+    [processing, setProcessing] = useState(false);
   const [receiptId, setReceiptId] = useState(""),
     [receiptChoice, setReceiptChoice] = useState("print"),
     [receiptPhase, setReceiptPhase] = useState(false),
@@ -278,6 +279,7 @@ export function App() {
     [attempts, setAttempts] = useState(0),
     [lockedUntil, setLockedUntil] = useState(0),
     [now, setNow] = useState(Date.now());
+  const [selectingReturn,setSelectingReturn] = useState(false);
   const [historyQuery, setHistoryQuery] = useState(""),
     [returnTx, setReturnTx] = useState<Transaction | null>(null),
     [returns, setReturns] = useState<Record<string, number>>({}),
@@ -304,7 +306,6 @@ export function App() {
   }, []);
   const current = state.sale,
     totals = price(current),
-    customer = state.customers.find((c) => c.id === current.customer),
     paid = payments.reduce((a, p) => a + p.amount, 0),
     remaining = Math.max(0, totals.total - paid),
     selectedLine = current.lines.find((l) => l.id === selected),
@@ -317,17 +318,6 @@ export function App() {
       setStorageWarning("تعذر حفظ البيانات محلياً؛ أبقِ الصفحة مفتوحة ولا تعِد تحميلها حتى تنتهي التجربة.");
     }
   }, [state]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "mizan-payment-v1",
-        JSON.stringify({
-          saleId: current.id,
-          payments: modal === "payment" ? payments : [],
-        }),
-      );
-    } catch {setStorageWarning("تعذر حفظ الدفعات الجزئية؛ لا تعِد تحميل الصفحة أثناء الدفع.");}
-  }, [payments, current.id, modal]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -345,7 +335,7 @@ export function App() {
     let buffer = "",
       last = 0;
     function scan(e: KeyboardEvent) {
-      if (modal || approval || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+      if (modal || approval || e.ctrlKey || e.altKey || e.metaKey || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable))
         return;
       if (e.key.length === 1) barcodeInputRef.current?.focus({ preventScroll: true });
       if (e.key === "Enter" && buffer.length >= 4) {
@@ -363,8 +353,8 @@ export function App() {
         setSearch(buffer);
       }
     }
-    window.addEventListener("keydown", scan);
-    return () => window.removeEventListener("keydown", scan);
+    window.addEventListener("keydown", scan, true);
+    return () => window.removeEventListener("keydown", scan, true);
   }, [modal, approval, current]);
   const update = (sale: Sale) => dispatch({ type: "sale", sale }),
     announce = (s: string) => setToast(s);
@@ -373,19 +363,24 @@ export function App() {
     setInput("");
     setAux("");
     setModal(m);
-    if(m==='customer'){setNewCustomer(false);setNewCustomerPhone('');setCustomerQuery('');}
   }
   function openNewProduct(barcode = "") {
+    setProductReturn(modal === "products" ? "products" : modal === "inventory" ? "inventory" : null);
+    const draft = emptyNewProduct(normalizeDigits(barcode).replace(/\D/g, ""));
+    if(modal === "inventory" && receiveCategory) draft.category=receiveCategory;
+    productBaseline.current = JSON.stringify(draft);
     setEditingProductId(null);
-    setNewProduct(emptyNewProduct(normalizeDigits(barcode).replace(/\D/g, "")));
+    setNewProduct(draft);
     open("newProduct");
   }
   function openEditProduct(product: Product) {
+    setProductReturn("products");
     setEditingProductId(product.id);
     setNewProduct({barcode:product.barcode,scaleCode:product.scaleCode||"",name:product.name,category:product.category,price:String(product.price),cost:product.cost === undefined ? "" : String(product.cost),supplier:product.supplier || "",stock:String(product.stock),minStock:String(product.minStock || 0),unit:product.unit || "piece",tax:String(product.tax),expiry:product.expiry || ""});
+    productBaseline.current = JSON.stringify({barcode:product.barcode,scaleCode:product.scaleCode||"",name:product.name,category:product.category,price:String(product.price),cost:product.cost === undefined ? "" : String(product.cost),supplier:product.supplier || "",stock:String(product.stock),minStock:String(product.minStock || 0),unit:product.unit || "piece",tax:String(product.tax),expiry:product.expiry || ""});
     open("newProduct");
   }
-  function saveNewProduct() {
+  function saveNewProduct(addToBasket = false) {
     const barcode = normalizeDigits(newProduct.barcode).replace(/\s/g, "");
     const scaleCode=normalizeDigits(newProduct.scaleCode).replace(/\D/g,"");
     const priceValue = Number(normalizeDigits(newProduct.price));
@@ -393,38 +388,57 @@ export function App() {
     const stockValue = Number(normalizeDigits(newProduct.stock));
     const minStockValue = Number(normalizeDigits(newProduct.minStock));
     const taxValue = Number(normalizeDigits(newProduct.tax));
-    if (!/^\d{4,32}$/.test(barcode)) {setError("أدخل باركوداً رقمياً من ٤ إلى ٣٢ رقماً");return;}
+    if (!/^\d{4,32}$/.test(barcode)) {setError("أدخل باركوداً رقمياً من 4 إلى 32 رقماً");return;}
     if (products.some(p => p.barcode === barcode && p.id !== editingProductId)) {setError("الباركود مسجل مسبقاً");return;}
-    if(scaleCode&& !/^\d{5}$/.test(scaleCode)){setError("رمز الميزان يجب أن يكون ٥ أرقام");return;}
+    if(scaleCode&& !/^\d{5}$/.test(scaleCode)){setError("رمز الميزان يجب أن يكون 5 أرقام");return;}
     if(scaleCode&&products.some(p=>p.scaleCode===scaleCode&&p.id!==editingProductId)){setError("رمز الميزان مسجل مسبقاً");return;}
     if(scaleCode&&!['kg','g'].includes(newProduct.unit)){setError("رمز الميزان يتطلب وحدة وزن");return;}
     if (!newProduct.name.trim()) {setError("أدخل اسم الصنف");return;}
-    if (!Number.isSafeInteger(priceValue) || priceValue < 0) {setError("أدخل سعر بيع صحيحاً");return;}
+    if (!newProduct.price.trim() || !Number.isSafeInteger(priceValue) || priceValue < 0) {setError("أدخل سعر بيع صحيحاً");return;}
     if (costValue !== undefined && (!Number.isSafeInteger(costValue) || costValue < 0)) {setError("أدخل تكلفة صحيحة");return;}
     if (!Number.isSafeInteger(stockValue) || stockValue < 0 || !Number.isSafeInteger(minStockValue) || minStockValue < 0) {setError("أدخل مخزوناً صحيحاً");return;}
-    if (!Number.isFinite(taxValue) || taxValue < 0 || taxValue > 100) {setError("أدخل ضريبة من ٠ إلى ١٠٠");return;}
+    if (!Number.isFinite(taxValue) || taxValue < 0 || taxValue > 100) {setError("أدخل ضريبة من 0 إلى 100");return;}
+    if(addToBasket && stockValue<1){setError("أدخل مخزوناً ابتدائياً لا يقل عن 1 للإضافة إلى السلة");return;}
     approve(`${editingProductId ? "تعديل" : "تسجيل"} صنف · ${newProduct.name.trim()}`, () => {
       try {
         const categoryInfo = categories.find(c => c.id === newProduct.category)!;
         const existing = editingProductId ? products.find(p => p.id === editingProductId) : undefined;
-        const product: Product = {id:existing?.id || `custom-${uid()}`,custom:true,barcode,scaleCode:scaleCode||undefined,name:newProduct.name.trim(),category:newProduct.category,price:priceValue,cost:costValue,supplier:newProduct.supplier.trim(),stock:existing?.stock ?? stockValue,minStock:minStockValue,unit:newProduct.unit,tax:taxValue,expiry:newProduct.expiry || undefined,tone:categoryInfo.tone,discountable:true,available:existing?.available !== false};
-        if (existing) {updateRegisteredProduct(product);if(stockValue!==existing.stock)changeInventory([{productId:product.id,quantity:stockValue-existing.stock}],"adjust","تعديل يدوي من إدارة الأصناف");} else registerProduct(product);
+        const product: Product = {id:existing?.id || `custom-${uid()}`,...existing,custom:existing ? existing.custom : true,edited:!!existing,barcode,scaleCode:scaleCode||undefined,name:newProduct.name.trim(),category:newProduct.category,price:priceValue,cost:costValue,supplier:newProduct.supplier.trim(),stock:stockValue,minStock:minStockValue,unit:newProduct.unit,tax:taxValue,expiry:newProduct.expiry || undefined,tone:categoryInfo.tone,discountable:true,available:existing?.available !== false};
+        if (existing) {updateRegisteredProduct(product);} else registerProduct(product);
         setCatalogVersion(v => v + 1);
         setCategory(product.category);
         setSearch("");
-        setModal(null);
+        setModal(productReturn);
+        if(productReturn === "inventory"){setInventoryProductId(product.id);setReceiveBarcode(product.barcode);setReceiveCost(newProduct.cost);setReceiveCategory(product.category);}
+        if(addToBasket) addProduct(product);
         announce(existing ? "تم تحديث الصنف" : "تم تسجيل الصنف ويمكن مسح باركوده الآن");
       } catch (e) {setError(e instanceof Error ? e.message : "تعذر حفظ الصنف");}
     });
   }
+  function lookupReceiving() {
+    const barcode=normalizeDigits(receiveBarcode.trim());
+    const found=products.find(p=>p.barcode===barcode);
+    if(found){
+      if(found.available===false){setInventoryProductId("");setError("الصنف موقوف");return;}
+      if(receiveCategory && found.category!==receiveCategory){setInventoryProductId("");setReceiveCost("");setError("الباركود لا ينتمي إلى الفئة المحددة");return;}
+      setInventoryProductId(found.id);setReceiveCategory(found.category);setReceiveCost(found.cost===undefined?"":String(found.cost));setError("");
+    }else if(/^\d{4,32}$/.test(barcode)){setInventoryProductId("");openNewProduct(barcode);}
+    else {setInventoryProductId("");setError("أدخل باركوداً رقمياً صحيحاً");}
+  }
+  function resetReceiving() {
+    setReceiveQuantity("");setReceiveCategory("");setReceiveCost("");setReceiveBarcode("");setInventoryProductId("");
+    receivingBaseline.current=JSON.stringify(["","","","",""]);
+  }
   function receiveStock() {
     const quantity=Number(normalizeDigits(receiveQuantity));
     const product=products.find(p=>p.id===inventoryProductId);
-    if(!product){setError("اختر صنفاً");return;}
+    if(!product || product.available===false){setError("ابحث عن الباركود أولاً لتحديد الصنف");return;}
+    if(!receiveBarcode.trim() || normalizeDigits(receiveBarcode.trim())!==product.barcode){setError("ابحث عن الباركود أولاً لتحديد الصنف الصحيح");return;}
     if(!Number.isSafeInteger(quantity)||quantity<=0||quantity>999999){setError("أدخل كمية استلام صحيحة");return;}
-    if(!receiveSupplier.trim()){setError("أدخل اسم المورّد أو مرجع الاستلام");return;}
+    if(!receiveCategory || product.category!==receiveCategory){setError("اختر الفئة المطابقة للصنف");return;}
+    if(!receiveCost.trim() || !Number.isSafeInteger(Number(receiveCost)) || Number(receiveCost)<0){setError("أدخل سعر الشراء");return;}
     approve(`استلام مخزون · ${product.name} · ${quantity}`,()=>{
-      try{changeInventory([{productId:product.id,quantity}],"receive",`استلام ${new Date().toLocaleDateString('ar-IQ')}`,receiveSupplier);setCatalogVersion(v=>v+1);setReceiveQuantity("");setModal("inventory");announce("تم استلام المخزون وتسجيل الحركة");}
+      try{receiveInventory(product.id,quantity,Number(receiveCost));setCatalogVersion(v=>v+1);resetReceiving();setModal("inventory");announce("تم استلام المخزون وتسجيل الحركة");}
       catch(e){setError(e instanceof Error?e.message:"تعذر تحديث المخزون");}
     });
   }
@@ -434,8 +448,7 @@ export function App() {
       setError("أكمل المبلغ المتبقي قبل مغادرة الدفع");
       return;
     }
-    setModal(null);
-    setError("");
+    navigate(modal === "confirm" ? confirmationReturn.current : modal === "newProduct" ? productReturn : modal === "settings" && printerReturn ? printerReturn : null);
   }
   function approve(title: string, run: () => void) {
     setApproval({ title, run });
@@ -484,7 +497,7 @@ export function App() {
     const basketQuantity=current.lines.filter(l=>l.productId===p.id).reduce((sum,l)=>sum+(l.scaleWeight||l.quantity),0);
     const adding=scan?.scaleWeight||1;
     if(basketQuantity+adding>p.stock){announce("الكمية المطلوبة أكبر من المخزون المتاح");return;}
-    if(old && old.quantity>=999){announce("الحد الأقصى للصنف ٩٩٩. عدّل الكمية من السلة.");return;}
+    if(old && old.quantity>=999){announce("الحد الأقصى للصنف 999. عدّل الكمية من السلة.");return;}
     update({
       ...current,
       lines: old && !scan?.priceOverride
@@ -513,7 +526,7 @@ export function App() {
       return;
     }
     if (!Number.isSafeInteger(n) || n > 999) {
-      announce("الكمية من ١ إلى ٩٩٩");
+      announce("الكمية من 1 إلى 999");
       return;
     }
     const product=productById(line.productId), otherQuantity=current.lines.filter(l=>l.productId===line.productId&&l.id!==line.id).reduce((sum,l)=>sum+l.quantity,0);
@@ -536,7 +549,7 @@ export function App() {
     setSelected(null);
     announce("تم حذف الصنف");
   }
-  function startPayment(isSplit = false) {
+  function startPayment(split = false) {
     const problem=checkoutError(state);
     if(problem){announce(problem);return;}
     if (totals.total === 0) {
@@ -549,23 +562,21 @@ export function App() {
       return;
     }
     setPayments([]);
-    setSplit(isSplit);
-    setMethod("cash");
-    setPayResult("");
+    setSplitPayment(split);
     open("payment");
     setInput(String(totals.total));
   }
   function commitPayment(p: Payment) {
     const next = [...payments, p];
     setPayments(next);
-    setPayResult("");
     if (next.reduce((a, p) => a + p.amount, 0) === totals.total) {
       const id = current.id;
-      try{changeInventory(current.lines.map(l=>({productId:l.productId,quantity:-(l.scaleWeight||l.quantity)})),"sale",id);setCatalogVersion(v=>v+1);}catch(e){setPayResult(e instanceof Error?e.message:"تعذر تحديث المخزون");return;}
+      try{changeInventory(current.lines.map(l=>({productId:l.productId,quantity:-(l.scaleWeight||l.quantity)})),"sale",id);setCatalogVersion(v=>v+1);}catch(e){setError(e instanceof Error?e.message:"تعذر تحديث المخزون");return;}
       dispatch({ type: "complete", payments: next });
       setReceiptId(id);
       setReceiptChoice(printerSettings.enabled ? "print" : "none");
       setReceiptPhase(false);
+      setSplitPayment(false);
       setInput("");
       setModal("receipt");
       announce("تم الدفع بنجاح");
@@ -578,50 +589,15 @@ export function App() {
     if(busyRef.current)return;
     busyRef.current=true;
     try {
-      commitPayment(cashPayment(remaining, Number(input), split));
+      commitPayment(cashPayment(remaining, Number(input), splitPayment));
       setError("");
     } catch (e) {
       setError((e as Error).message);
     } finally {queueMicrotask(()=>{busyRef.current=false;});}
   }
-  function electronic(result: string) {
-    if (busyRef.current) return;
-    const amount = Number(input);
-    if (
-      !Number.isSafeInteger(amount) ||
-      amount <= 0 ||
-      amount > remaining ||
-      (!split && amount !== remaining)
-    ) {
-      setError("أدخل مبلغاً صحيحاً ضمن المتبقي");
-      return;
-    }
-    busyRef.current = true;
-    setProcessing(true);
-    setError("");
-    setPayResult("جارٍ الاتصال بجهاز الدفع…");
-    setTimeout(() => {
-      busyRef.current = false;
-      setProcessing(false);
-      if (result === "approved")
-        commitPayment({
-          id: uid(),
-          method,
-          amount,
-          tendered: amount,
-          change: 0,
-        });
-      else
-        setPayResult(
-          result === "declined"
-            ? "تم رفض البطاقة. جرّب وسيلة أخرى."
-            : result === "timeout"
-              ? "انتهت مهلة الاتصال. يمكنك المحاولة مجدداً."
-              : "تم إلغاء محاولة الدفع",
-        );
-    }, 900);
-  }
   function applyDiscount() {
+    const candidate = discountTarget === "basket" ? {...current,discount:{kind:discountKind,value:1}} : {...current,lines:current.lines.map(l=>l.id===discountTarget?{...l,discount:{kind:discountKind,value:1}}:l)};
+    const conflict = discountConflict(candidate); if (conflict) {setError(conflict);return;}
     const v = Number(input);
     if (
       !Number.isFinite(v) || (discountKind === 'fixed' && !Number.isSafeInteger(v)) ||
@@ -679,21 +655,10 @@ export function App() {
       }
       previewPrint(salePrintReceipt(tx, printerSettings), printerSettings, tx);
     }
-    if (
-      receiptChoice === "email" &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input)
-    ) {
-      setError("أدخل بريداً إلكترونياً صحيحاً");
-      return;
-    }
-    if (receiptChoice === "sms" && !/^(07\d{9}|\+9647\d{9})$/.test(input)) {
-      setError("أدخل رقماً عراقياً مثل 07701234567");
-      return;
-    }
     dispatch({
       type: "receipt",
       id: receiptId,
-      method: receiptChoice === "print" ? "print-preview (unconfirmed)" : receiptChoice + (input ? `: ${input}` : ""),
+      method: receiptChoice === "print" ? "print-preview (unconfirmed)" : "none",
     });
     setReceiptPhase(true);
     setError("");
@@ -708,51 +673,65 @@ export function App() {
         p.id.toLowerCase() === search.toLowerCase()),
   );
   const shown =
-    category === "all" && !search ? filtered.slice(0, 15) : filtered;
+    category === "all" && !search.trim() ? filtered.filter(p=>favorites.includes(p.id)) : filtered;
   const categoriesPerPage = 14;
   const visibleCategories = categories.slice(0, categoriesPerPage);
-  const report = buildDailyReport(state, new Date(now));
+  const reportRangeValid = !!reportFrom && !!reportTo && reportFrom <= reportTo;
+  const report = buildDailyReport(state, new Date(now),reportFrom,reportTo);
   function exportReport() {
     const url=URL.createObjectURL(new Blob([dailyReportCsv(report)],{type:'text/csv;charset=utf-8'}));
     const link=document.createElement('a');link.href=url;link.download=`mizan-report-${report.date}.csv`;link.click();URL.revokeObjectURL(url);
     announce('تم تجهيز ملف تقرير اليوم');
   }
   const titles: Record<Exclude<Modal, null>, string> = {
-    customer: "العميل وبرنامج الولاء",
     discount: "تطبيق خصم",
     coupon: "العروض والكوبونات",
     price: "التحقق من السعر",
-    newProduct: "تسجيل صنف جديد",
+    newProduct: editingProductId ? "تعديل الصنف" : "تسجيل صنف جديد",
     products: "إدارة الأصناف",
-    inventory: "المخزون وحركات الأصناف",
-    reports: "تقارير اليوم",
+    inventory: "المخزون",
+    reports: "التقارير",
     age: "التحقق من العمر",
     quantity: "تعديل الصنف",
-    hold: "تعليق البيع",
+    hold: "المبيعات المعلقة",
     recall: "المبيعات المعلقة",
     cancel: "إلغاء البيع الحالي",
     payment: "إتمام الدفع",
     receipt: "إيصال البيع",
-    printer: "إعدادات الطابعة الحرارية",
-    settings: "الإعدادات والإدارة",
+    settings: "الإعدادات",
+    audit: "سجل العمليات",
     history: "سجل المعاملات",
     refund: "استرجاع وإعادة المبلغ",
     drawer: "درج النقد",
-    help: "دليل نقطة البيع",
+    help: "المساعدة",
     confirm: "تأكيد العملية",
   };
   const transaction = state.transactions.find((t) => t.sale.id === receiptId);
   const workspace = modal && workspaceOrder.includes(modal as Workspace) ? modal as Workspace : null;
-  function switchWorkspace(next: Workspace) {
-    if (next === "inventory") { setReceiveQuantity(""); setReceiveSupplier(""); }
-    if (next === "history") setHistoryTab("sales");
-    if (next !== "printer") setPrinterReturn(null);
-    open(next);
+  const management = !!workspace && !["history", "settings"].includes(workspace) && (workspace !== "newProduct" || productReturn !== null);
+  const receivingSnapshot = JSON.stringify([inventoryProductId,receiveBarcode,receiveCost,receiveQuantity,receiveCategory]);
+  const dirty = printerDirty || wholesaleDirty || offersDirty || categoriesDirty || (modal === "newProduct" && JSON.stringify(newProduct) !== productBaseline.current) || (modal === "inventory" && receivingSnapshot !== receivingBaseline.current);
+  useEffect(() => {
+    if (!dirty) return;
+    const preventDraftLoss = (event: BeforeUnloadEvent) => {event.preventDefault(); event.returnValue = "";};
+    window.addEventListener("beforeunload", preventDraftLoss);
+    return () => window.removeEventListener("beforeunload", preventDraftLoss);
+  }, [dirty]);
+  function performNavigation(target: Modal) {
+    setPendingNavigation(null); setPrinterDirty(false); setWholesaleDirty(false); setOffersDirty(false);setCategoriesDirty(false);
+    if(!(modal === "newProduct" && target === "inventory")){resetReceiving();}
+    if(target === "audit") setHistoryTab("audit");
+    if(target === "history") setHistoryTab("sales");
+    open(target);
   }
-  function leaveWorkspace() {
-    if (workspace === "printer" && printerReturn) { open(printerReturn); setPrinterReturn(null); return; }
-    setModal(null);
+  function navigate(target: Modal) {
+    if(target === modal) return;
+    if(dirty) {setPendingNavigation({target}); return;}
+    performNavigation(target);
   }
+  function switchWorkspace(next: Workspace) {navigate(next);}
+  function leaveWorkspace() {navigate(modal === "newProduct" ? productReturn : modal === "settings" && printerReturn ? printerReturn : null);}
+  const matchingProducts = products.filter(p => (p.name.includes(productQuery.trim()) || p.barcode.includes(normalizeDigits(productQuery.trim()))) && (productCategory === "all" || p.category === productCategory) && (productStatus === "all" || (productStatus === "low" ? p.stock <= (p.minStock || 0) : p.available === false)));
   return (
     <div className="pos-shell" dir="rtl">
       <main className="pos-main">
@@ -762,6 +741,7 @@ export function App() {
               {visibleCategories.map((c) => (
                 <button
                   key={c.id}
+                  style={{backgroundColor:categoryColor(c.id)}}
                   className={`category tone-${c.tone} ${category === c.id ? "active" : ""}`}
                   aria-pressed={category === c.id}
                   onClick={() => {
@@ -772,43 +752,7 @@ export function App() {
                   <span>{c.name}</span>
                 </button>
               ))}
-              {Array.from({length: Math.max(0, categoriesPerPage - visibleCategories.length)}, (_, index) => <button className="category category-placeholder" aria-label="فئة غير مسماة" key={`category-placeholder-${index}`} type="button" />)}
-            </div>
-            <div className="rail-tools" aria-label="إجراءات نقطة البيع">
-              <div className={`rail-tool-cell ${visibleCategories[0]?.id === category ? "active" : ""}`}>
-                <Btn label="البحث عن منتج أو باركود" onClick={() => barcodeInputRef.current?.focus()}><Search size={20}/></Btn>
-                <input
-                  className="scanner-input"
-                  ref={barcodeInputRef}
-                  autoFocus
-                  inputMode="search"
-                  aria-label="البحث عن منتج أو باركود"
-                  value={search}
-                  onChange={(e) => setSearch(normalizeDigits(e.target.value).trimStart())}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter" || !search.trim()) return;
-                    const barcodeMatch=findBarcode(search);
-                    const p = barcodeMatch?.product || filtered[0];
-                    if (p) addProduct(p,false,barcodeMatch || undefined);
-                    else if (/^\d{4,32}$/.test(search.trim())) openNewProduct(search.trim());
-                    else announce("لم يتم العثور على الصنف");
-                    if (p) setSearch("");
-                  }}
-                />
-              </div>
-              <div className={`rail-tool-cell ${visibleCategories[1]?.id === category ? "active" : ""}`}><Btn label="المعاملات" onClick={() => {open("history");setHistoryTab("sales");}}><History size={20}/></Btn></div>
-              <div className={`rail-tool-cell ${visibleCategories[2]?.id === category ? "active" : ""}`}><Btn label="استرجاع" onClick={() => {open("history");setHistoryTab("sales");}}><RotateCcw size={20}/></Btn></div>
-              <div className={`rail-tool-cell ${visibleCategories[3]?.id === category ? "active" : ""}`}><Btn label="درج النقد" onClick={() => open("drawer")}><Banknote size={20}/></Btn></div>
-              <div className={`rail-tool-cell ${visibleCategories[4]?.id === category ? "active" : ""}`}><Btn label="المساعدة" onClick={() => open("help")}><CircleHelp size={20}/></Btn></div>
-              <div className={`rail-tool-cell ${visibleCategories[5]?.id === category ? "active" : ""}`}><Btn label="الإعدادات والإدارة" onClick={() => open("settings")}><SettingsIcon size={20}/></Btn></div>
-              <div className="rail-tool-cell"><Btn label="سجل العمليات والاعتمادات" onClick={() => {open("history");setHistoryTab("audit");}}><ShieldCheck size={20}/></Btn></div>
-              <div className="rail-tool-cell"><Btn label="إعادة بيانات التجربة" onClick={() => ask("سيتم حذف بيانات هذه النسخة التجريبية فقط. متابعة؟",()=>approve("إعادة بيانات التجربة", () => {dispatch({ type: "reset" });setModal(null);announce("تمت إعادة بيانات التجربة");}))}><RotateCcw size={20}/></Btn></div>
-              <div className="rail-tool-cell" aria-hidden="true" />
-              <div className="rail-tool-cell" aria-hidden="true" />
-              <div className="rail-tool-cell" aria-hidden="true" />
-              <div className="rail-tool-cell" aria-hidden="true" />
-              <div className="rail-tool-cell" aria-hidden="true" />
-              <div className="rail-tool-cell rail-page-cell" aria-hidden="true" />
+              {Array.from({length: Math.max(0, categoriesPerPage - visibleCategories.length)}, (_, index) => <button style={{backgroundColor:categoryPalette[visibleCategories.length+index]}} className="category category-placeholder" aria-label="فئة غير مسماة" key={`category-placeholder-${index}`} type="button" />)}
             </div>
           </div>
         </nav>
@@ -817,7 +761,6 @@ export function App() {
             <div>
               <h1>{categories.find((c) => c.id === category)?.name}</h1>
             </div>
-            <span className="item-count">{shown.length} صنف</span>
           </div>
           <div className="products-scroll">
             <div className="product-grid">
@@ -825,7 +768,8 @@ export function App() {
                 return (
                   <button
                     key={p.id}
-                    className={`product-tile tone-${p.tone}`}
+                    className="product-tile"
+                    style={{backgroundColor:categoryColor(p.category)}}
                     aria-label={`إضافة ${p.name}`}
                     onClick={() => addProduct(p)}
                   >
@@ -842,23 +786,51 @@ export function App() {
               </div>
             )}
           </div>
-          <footer className="catalog-footer">
-            <Btn label="التحقق من السعر" onClick={() => {setCheckedProduct(null);setCheckedScale(null);open("price");}}><ScanBarcode size={20}/></Btn>
-            <Btn label="العروض والكوبونات" onClick={() => open("coupon")}><Ticket size={20}/></Btn>
-            <Btn label="تعليق" disabled={!current.lines.length} onClick={() => {open("hold");setInput(current.note);}}><Pause size={20}/></Btn>
-            <Btn label="استدعاء" onClick={() => open("recall")}><Undo2 size={20}/></Btn>
-          </footer>
+              <div className="catalog-footer">
+            <div className="rail-tools" aria-label="إجراءات نقطة البيع">
+              <div className="scanner-host">
+                <input
+                  className="scanner-input"
+                  ref={barcodeInputRef}
+                  autoFocus
+                  inputMode="none"
+                  autoComplete="off"
+                  aria-label="البحث عن منتج أو باركود"
+                  value={search}
+                  onChange={(e) => setSearch(normalizeDigits(e.target.value).trimStart())}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || !search.trim()) return;
+                    const barcodeMatch=findBarcode(search);
+                    const p = barcodeMatch?.product || filtered[0];
+                    if (p) addProduct(p,false,barcodeMatch || undefined);
+                    else if (/^\d{4,32}$/.test(search.trim())) openNewProduct(search.trim());
+                    else announce("لم يتم العثور على الصنف");
+                    if (p) setSearch("");
+                  }}
+                />
+              </div>
+              <div className={`rail-tool-cell ${visibleCategories[1]?.id === category ? "active" : ""}`}><Btn label="المعاملات" onClick={() => {setSelectingReturn(false);open("history");setHistoryTab("sales");}}><History size={20}/></Btn></div>
+              <div className={`rail-tool-cell ${visibleCategories[2]?.id === category ? "active" : ""}`}><Btn label="بدء استرجاع" onClick={() => {setSelectingReturn(true);setHistoryQuery("");open("history");setHistoryTab("sales");}}><Undo2 size={20}/></Btn></div>
+              <div className={`rail-tool-cell ${visibleCategories[3]?.id === category ? "active" : ""}`}><Btn label="درج النقد" onClick={() => open("drawer")}><Banknote size={20}/></Btn></div>
+              <div className="rail-tool-cell"><Btn label="الإعدادات والإدارة" onClick={() => open("products")}><ShoppingBag size={20}/></Btn></div>
+              <div className="rail-tool-cell"><Btn label="الإعدادات" onClick={() => {setPrinterReturn(null);open("settings");}}><SettingsIcon size={20}/></Btn></div>
+              <div className="rail-tool-cell"><Btn label="المساعدة" onClick={() => open("help")}><CircleHelp size={20}/></Btn></div>
+            </div>
+
+                <Btn label="التحقق من السعر" onClick={() => {setCheckedProduct(null);setCheckedScale(null);open("price");}}><ScanBarcode size={20}/></Btn>
+              </div>
         </section>
         <aside className="basket" aria-label="سلة البيع">
           <div className="order-header">
             <div>
-              <span className="eyebrow">السلة</span>
-              <h2 dir="ltr">
-                #{current.id}
-              </h2>
+              <h2 className="basket-title">السلة</h2>
+            </div>
+            <div className="basket-header-actions">
+                <Btn label="حفظ في المبيعات المعلقة" disabled={!current.lines.length} onClick={() => {open("hold");setInput(current.note);}}><Pause size={20}/></Btn>
+                <Btn label="المبيعات المعلقة" onClick={() => open("recall")}><Undo2 size={20}/></Btn>
             </div>
           </div>
-          <div className="service-tabs" role="group" aria-label="نوع البيع">
+          <div className="service-tabs" role="group" aria-label="نوع البيع" hidden={!salesSettings.wholesaleEnabled}>
             <button
               aria-pressed={current.service === "takeaway"}
               className={current.service === "takeaway" ? "active" : ""}
@@ -869,30 +841,11 @@ export function App() {
             <button
               aria-pressed={current.service === "dinein"}
               className={current.service === "dinein" ? "active" : ""}
-              onClick={() => update({ ...current, service: "dinein" })}
+              onClick={() => {const next={...current,service:"dinein" as const};const conflict=discountConflict(next);if(conflict){announce(conflict);return;}update(next);}}
             >
               جملة
             </button>
           </div>
-          <button
-            className="customer-bar"
-            onClick={() => {
-              setNewCustomer(false);
-              setCustomerQuery("");
-              open("customer");
-            }}
-          >
-            <UserRound size={18} />
-            <span>
-              {customer ? customer.name : "إضافة عميل / بطاقة ولاء"}
-              {customer && (
-                <small>
-                  {customer.points} نقطة · {customer.tier}
-                </small>
-              )}
-            </span>
-            <Plus size={17} />
-          </button>
           <div className="basket-lines" role="region" aria-label="أصناف السلة" tabIndex={0}>
             {!current.lines.length ? (
               <div className="empty">
@@ -915,8 +868,8 @@ export function App() {
                           setSelected(selected === l.id ? null : l.id)
                         }
                       >
-                        <span className={`line-color tone-${p.tone}`} />
                         <b className="line-quantity">{l.quantity}</b>
+                        <span className={`line-color tone-${p.tone}`} />
                         <span>
                           {p.name}
                           {p.age && <ShieldCheck size={12} />}
@@ -977,42 +930,7 @@ export function App() {
             )}
           </div>
           <div className="checkout">
-            {(totals.itemDiscount > 0 || totals.promotions > 0 || totals.basketDiscount > 0 || totals.reward > 0) && <div className="totals">
-              {totals.itemDiscount > 0 && (
-                <div className="saving">
-                  <span>خصم الأصناف</span>
-                  <span>− {money(totals.itemDiscount)}</span>
-                </div>
-              )}
-              {totals.promotions > 0 && (
-                <div className="saving">
-                  <span>العروض التلقائية</span>
-                  <span>− {money(totals.promotions)}</span>
-                </div>
-              )}
-              {totals.basketDiscount > 0 && (
-                <div className="saving">
-                  <button
-                    onClick={() =>
-                      update({
-                        ...current,
-                        discount: undefined,
-                        coupon: undefined,
-                      })
-                    }
-                  >
-                    خصم السلة <X size={12} />
-                  </button>
-                  <span>− {money(totals.basketDiscount)}</span>
-                </div>
-              )}
-              {totals.reward > 0 && (
-                <div className="saving">
-                  <span>مكافأة الولاء</span>
-                  <span>− {money(totals.reward)}</span>
-                </div>
-              )}
-            </div>}
+            {totals.savings.length > 0 && <div className="totals">{totals.savings.map((saving,index)=><div className="saving" key={index}><span>{saving.reason}</span><span>− {money(saving.amount)}</span></div>)}{current.coupon && <button className="btn" onClick={()=>update({...current,coupon:undefined})}>إزالة الكوبون</button>}</div>}
             <div className="grand-total">
               <span>الإجمالي</span>
               <strong data-testid="grand-total"><span>{amountText(totals.total)}</span> <small>د.ع.</small></strong>
@@ -1031,7 +949,7 @@ export function App() {
                 disabled={!current.lines.length}
                 onClick={() => startPayment(true)}
               >
-                تقسيم الدفع
+                تقسيم
               </Btn>
             </div>
             <Btn
@@ -1054,13 +972,13 @@ export function App() {
       <Dialog.Root
         open={modal !== null || approval !== null}
         onOpenChange={(v) => {
-          if (!v) {if(printDocument) setPrintDocument(""); else close();}
+          if (!v) {if(pendingNavigation) setPendingNavigation(null); else if(printDocument) setPrintDocument(""); else close();}
         }}
       >
         <Dialog.Portal>
           <Dialog.Overlay className={`dialog-overlay ${workspace ? "workspace-overlay" : ""}`} />
           <Dialog.Content
-            className={`dialog-content ${workspace && !approval && !printDocument ? "workspace-shell" : ""} ${printDocument ? "thermal-dialog" : modal === "payment" && !approval ? "payment-dialog" : modal === "newProduct" ? "management-dialog" : ""}`}
+            className={`dialog-content ${workspace && !approval && !printDocument ? `workspace-shell ${management ? "management-shell" : ""}` : ""} ${printDocument ? "thermal-dialog" : modal === "payment" && !approval ? "payment-dialog" : modal === "newProduct" ? "management-dialog" : ""}`}
             dir="rtl"
             onEscapeKeyDown={(e) => {
               if (
@@ -1084,28 +1002,33 @@ export function App() {
             <div className="dialog-header">
               <div>
                 <Dialog.Title>
-                  {printDocument ? "معاينة الطباعة الحرارية" : approval ? "موافقة المدير" : modal ? titles[modal] : ""}
+                  {pendingNavigation ? "تغييرات غير محفوظة" : printDocument ? "معاينة الطباعة الحرارية" : approval ? "موافقة المدير" : modal === "history" && selectingReturn ? "اختر فاتورة للاسترجاع" : modal ? titles[modal] : ""}
                 </Dialog.Title>
               </div>
-              {!processing && modal !== "receipt" && (
+              {!processing && (modal !== "receipt" || !!printDocument) && (
                 <Btn
-                  label={workspace && !approval && !printDocument ? "العودة إلى شاشة البيع" : "إغلاق"}
-                  onClick={() => (printDocument ? setPrintDocument("") : approval ? setApproval(null) : workspace ? leaveWorkspace() : close())}
+                  variant="dialog-close-square"
+                  label={pendingNavigation ? "العودة إلى التحرير" : printDocument ? `العودة إلى ${modal === "products" ? "الأصناف" : modal === "settings" ? "الإعدادات" : modal === "history" ? "المعاملات" : "الإيصال"}` : workspace && !approval && !printDocument ? modal === "newProduct" && productReturn ? productReturn === "inventory" ? "العودة إلى الاستلام" : "العودة إلى الأصناف" : modal === "settings" && printerReturn ? "العودة إلى الإيصال" : "العودة إلى شاشة البيع" : "إغلاق"}
+                  onClick={() => (pendingNavigation ? setPendingNavigation(null) : printDocument ? setPrintDocument("") : approval ? setApproval(null) : workspace ? leaveWorkspace() : close())}
                 >
-                  {workspace && !approval && !printDocument ? <><ArrowRight size={20}/><span>البيع</span></> : <X size={20} />}
+                  <X size={20} aria-hidden="true"/>
                 </Btn>
               )}
             </div>
-            {workspace && !approval && !printDocument && (
+            {management && !approval && !printDocument && !pendingNavigation && (
               <nav className="workspace-tabs" aria-label="أقسام الإدارة">
-                {workspaceTabs.map(({id,label,icon:Icon}) => <button key={id} type="button" className={workspace===id ? "active" : ""} aria-current={workspace===id ? "page" : undefined} onClick={()=>switchWorkspace(id)}><Icon size={19}/><span>{label}</span></button>)}
+                {workspaceTabs.map(({id,label,icon:Icon}) => <button key={id} type="button" className={(workspace === "newProduct" ? productReturn : workspace)===id ? "active" : ""} aria-current={(workspace === "newProduct" ? productReturn : workspace)===id ? "page" : undefined} onClick={()=>switchWorkspace(id)}><Icon size={19}/><span>{label}</span></button>)}
               </nav>
             )}
             <div className="dialog-body">
-              {printDocument && <div className="thermal-preview"><Btn variant="full" onClick={() => setPrintDocument("")}>رجوع من معاينة الطباعة</Btn><iframe title="معاينة الإيصال الحراري" srcDoc={printDocument}/></div>}
-              <div className="dialog-regular" hidden={!!printDocument}>
-              {modal==='confirm'&&confirmation&&!approval&&<><p>{confirmation.title}</p>{confirmation.reason&&<Field label="السبب" value={aux} onChange={setAux}/>}<Btn variant="primary full" disabled={confirmation.reason&&!aux.trim()} onClick={()=>confirmation.run(aux)}>تأكيد المتابعة</Btn><Btn variant="full" onClick={()=>setModal(null)}>رجوع</Btn></>}
-              {approval ? (
+              {printDocument && <div className="thermal-preview">
+                {labelProduct && <label className="label-copies">عدد الملصقات<input type="number" min="1" max="100" value={labelCopies} onChange={e=>{const copies=e.target.value;setLabelCopies(copies);if(Number.isInteger(Number(copies))&&Number(copies)>=1&&Number(copies)<=100)previewProductLabel(labelProduct,copies);}}/></label>}
+                {labelProduct && (!Number.isInteger(Number(labelCopies)) || Number(labelCopies)<1 || Number(labelCopies)>100) ? <p role="alert">أدخل عدد الملصقات من 1 إلى 100</p> : <iframe title="معاينة الإيصال الحراري" srcDoc={printDocument}/>}
+              </div>}
+              {pendingNavigation && <section className="unsaved-guard" role="alert" aria-label="تغييرات غير محفوظة"><p>تجاهل التغييرات والمغادرة؟</p><div className="form-actions"><button type="button" autoFocus className="btn primary" onClick={() => setPendingNavigation(null)}>متابعة التحرير</button><Btn variant="danger" onClick={() => performNavigation(pendingNavigation.target)}>تجاهل التغييرات والمغادرة</Btn></div></section>}
+              <div className="dialog-regular" hidden={!!printDocument || !!pendingNavigation}>
+              {modal==='confirm'&&confirmation&&!approval&&<><p>{confirmation.title}</p>{confirmation.reason&&<Field label="السبب" value={aux} onChange={setAux}/>}<Btn variant="primary full" disabled={confirmation.reason&&!aux.trim()} onClick={()=>confirmation.run(aux)}>تأكيد المتابعة</Btn><Btn variant="dialog-close-square" label="رجوع" onClick={()=>open(confirmationReturn.current)}><X size={20} aria-hidden="true"/></Btn></>}
+              {approval && (
                 <>
                   <div className="approval-icon">
                     <ShieldCheck size={35} />
@@ -1139,59 +1062,55 @@ export function App() {
                     اعتماد العملية
                   </Btn>
                 </>
-              ) : (
-                <>
+              )}
+                <div className="dialog-regular" hidden={!!approval}>
                   {modal === "newProduct" && (
                     <>
-                      <p>{editingProductId ? "عدّل بيانات الصنف ثم احفظ التغييرات." : "امسح باركود الصنف أو أدخله، ثم أكمل البيانات."} يتطلب الحفظ موافقة المدير.</p>
-                      <div className="new-product-grid">
-                        <label>الباركود<input autoFocus inputMode="numeric" value={newProduct.barcode} onChange={e=>setNewProduct(v=>({...v,barcode:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
-                        <label>رمز الميزان (٥ أرقام)<input inputMode="numeric" placeholder="مثال: 12345" value={newProduct.scaleCode} onChange={e=>setNewProduct(v=>({...v,scaleCode:normalizeDigits(e.target.value).replace(/\D/g,'').slice(0,5)}))}/></label>
+<div className="new-product-grid">
+                        <div className="barcode-field"><label>الباركود<span aria-hidden="true"> *</span><input aria-required="true" autoFocus={!newProduct.barcode} inputMode="numeric" value={newProduct.barcode} onChange={e=>setNewProduct(v=>({...v,barcode:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
+                        {!newProduct.barcode && <Btn onClick={()=>{try{setNewProduct(v=>({...v,barcode:generateInternalBarcode()}));}catch(e){setError(String(e));}}}>توليد باركود داخلي</Btn>}</div>
+                        <label>اسم الصنف<span aria-hidden="true"> *</span><input aria-required="true" autoFocus={!!newProduct.barcode} maxLength={120} value={newProduct.name} onChange={e=>setNewProduct(v=>({...v,name:e.target.value}))}/></label>
                         {newProduct.barcode&&products.some(p=>p.barcode===newProduct.barcode&&p.id!==editingProductId)&&<div className="duplicate-product new-product-wide" role="alert"><strong>هذا الباركود مسجل بالفعل</strong><span>{products.find(p=>p.barcode===newProduct.barcode)!.name} · {money(products.find(p=>p.barcode===newProduct.barcode)!.price)}</span></div>}
-                        <label>اسم الصنف<input maxLength={120} value={newProduct.name} onChange={e=>setNewProduct(v=>({...v,name:e.target.value}))}/></label>
                         <label>الفئة<select value={newProduct.category} onChange={e=>setNewProduct(v=>({...v,category:e.target.value}))}>{categories.filter(c=>c.id!=="all").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-                        <label>الوحدة<select value={newProduct.unit} onChange={e=>setNewProduct(v=>({...v,unit:e.target.value as NewProductDraft['unit']}))}><option value="piece">قطعة</option><option value="kg">كيلوغرام</option><option value="g">غرام</option><option value="l">لتر</option><option value="ml">ملليلتر</option></select></label>
-                        <label>سعر البيع<input inputMode="numeric" value={newProduct.price} onChange={e=>setNewProduct(v=>({...v,price:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
-                        <label>التكلفة<input inputMode="numeric" value={newProduct.cost} onChange={e=>setNewProduct(v=>({...v,cost:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
-                        <label>المخزون الابتدائي<input inputMode="numeric" value={newProduct.stock} onChange={e=>setNewProduct(v=>({...v,stock:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
-                        <label>حد المخزون المنخفض<input inputMode="numeric" value={newProduct.minStock} onChange={e=>setNewProduct(v=>({...v,minStock:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
-                        <label>الضريبة %<input inputMode="decimal" value={newProduct.tax} onChange={e=>setNewProduct(v=>({...v,tax:normalizeDigits(e.target.value).replace(/[^\d.]/g,'')}))}/></label>
+                        <label>سعر البيع<span aria-hidden="true"> *</span><input aria-required="true" inputMode="numeric" value={newProduct.price} onChange={e=>setNewProduct(v=>({...v,price:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
+                        <label>سعر الشراء<input aria-label="التكلفة" inputMode="numeric" value={newProduct.cost} onChange={e=>setNewProduct(v=>({...v,cost:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>
+<details className="disclosure new-product-wide"><summary>تفاصيل إضافية</summary><div className="new-product-grid">                        <label>الوحدة<select value={newProduct.unit} onChange={e=>setNewProduct(v=>({...v,unit:e.target.value as NewProductDraft['unit'],scaleCode:["kg","g"].includes(e.target.value)?v.scaleCode:""}))}><option value="piece">قطعة</option><option value="kg">كيلوغرام</option><option value="g">غرام</option><option value="l">لتر</option><option value="ml">ملليلتر</option></select></label>
+                        {["kg","g"].includes(newProduct.unit) && <label>رمز الميزان (5 أرقام)<input inputMode="numeric" placeholder="مثال: 12345" value={newProduct.scaleCode} onChange={e=>setNewProduct(v=>({...v,scaleCode:normalizeDigits(e.target.value).replace(/\D/g,'').slice(0,5)}))}/></label>}
+                        {productReturn!=="inventory" && <label>{editingProductId ? "كمية المخزون" : "المخزون الابتدائي"}<input inputMode="numeric" value={newProduct.stock} onChange={e=>setNewProduct(v=>({...v,stock:normalizeDigits(e.target.value).replace(/\D/g,'')}))}/></label>}
+
                         <label>تاريخ الانتهاء<input type="date" value={newProduct.expiry} onChange={e=>setNewProduct(v=>({...v,expiry:e.target.value}))}/></label>
-                        <label className="new-product-wide">المورّد<input maxLength={120} value={newProduct.supplier} onChange={e=>setNewProduct(v=>({...v,supplier:e.target.value}))}/></label>
+                        <label className="new-product-wide">المورّد<input maxLength={120} value={newProduct.supplier} onChange={e=>setNewProduct(v=>({...v,supplier:e.target.value}))}/></label></div></details>
                       </div>
-                      <Btn variant="primary full" onClick={saveNewProduct}>{editingProductId ? "حفظ التعديلات" : "حفظ الصنف"} · موافقة المدير</Btn>
+                      <div className="form-actions"><Btn variant="primary" onClick={()=>saveNewProduct(!productReturn && !editingProductId)}>{editingProductId ? "حفظ التعديلات" : !productReturn ? "حفظ وإضافة للسلة" : "حفظ الصنف"}</Btn><Btn onClick={() => navigate(productReturn)}>إلغاء</Btn></div>
                     </>
                   )}
                   {modal === "products" && (
                     <>
-                      <div className="product-manager-summary"><span>{products.length} صنف</span><span>{products.filter(p=>p.custom).length} مسجل محلياً</span><span>{products.filter(p=>p.stock <= (p.minStock || 0)).length} منخفض المخزون</span></div>
-                      <Btn variant="primary full" onClick={()=>openNewProduct()}>تسجيل صنف جديد</Btn>
+
+                      <div className="management-toolbar"><Field label="بحث عن صنف بالاسم أو الباركود" value={productQuery} onChange={setProductQuery}/><label>الفئة<select value={productCategory} onChange={e=>setProductCategory(e.target.value)}><option value="all">كل الفئات</option>{categories.filter(c=>c.id!=="all").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>الحالة<select value={productStatus} onChange={e=>setProductStatus(e.target.value)}><option value="all">كل الأصناف</option><option value="low">مخزون منخفض</option><option value="disabled">موقوف</option></select></label><Btn variant="primary" onClick={()=>openNewProduct()}>تسجيل صنف جديد</Btn></div>
                       <div className="managed-products">
-                        {products.map(product=>{
+                        {matchingProducts.map(product=>{
                           const low=product.stock <= (product.minStock || 0);
                           const expiring=!!product.expiry && new Date(product.expiry+'T00:00:00').getTime() <= Date.now()+30*86400000;
                           const used=current.lines.some(l=>l.productId===product.id)||state.transactions.some(t=>t.sale.lines.some(l=>l.productId===product.id));
                           return <article className={`managed-product ${product.available===false?'disabled':''}`} key={product.id}>
-                            <div><strong>{product.name}</strong><small>{product.barcode} · {money(product.price)}</small><div className="product-flags">{low&&<span>مخزون منخفض</span>}{expiring&&<span>انتهاء قريب</span>}{product.available===false&&<span>موقوف</span>}{!product.custom&&<span>صنف تجريبي</span>}</div></div>
-                            <div className="managed-product-actions"><Btn disabled={!printerSettings.enabled} onClick={()=>previewProductLabel(product)}>ملصق</Btn>{product.custom&&<><Btn onClick={()=>openEditProduct(product)}>تعديل</Btn><Btn onClick={()=>approve(`${product.available===false?'تفعيل':'إيقاف'} الصنف · ${product.name}`,()=>{updateRegisteredProduct({...product,available:product.available===false});setCatalogVersion(v=>v+1);setModal('products');announce(product.available===false?'تم تفعيل الصنف':'تم إيقاف الصنف');})}>{product.available===false?'تفعيل':'إيقاف'}</Btn><Btn variant="danger" disabled={used} onClick={()=>approve(`حذف الصنف · ${product.name}`,()=>{deleteRegisteredProduct(product.id);setCatalogVersion(v=>v+1);setModal('products');announce('تم حذف الصنف');})}>حذف</Btn></>}</div>
+                            <div><strong>{product.name}</strong><small>{product.barcode} · {money(product.price)}</small><div className="product-flags">{low&&<span>مخزون منخفض</span>}{expiring&&<span>انتهاء قريب</span>}{product.available===false&&<span>موقوف</span>}</div></div>
+                            <div className="managed-product-actions"><button className="btn favorite-toggle" aria-label={`${favorites.includes(product.id)?"إزالة من المفضلة":"إضافة إلى المفضلة"} · ${product.name}`} aria-pressed={favorites.includes(product.id)} onClick={()=>{const next=favorites.includes(product.id)?favorites.filter(id=>id!==product.id):[...favorites,product.id];try{saveFavorites(next);setFavorites(next);}catch{setError("تعذر حفظ المفضلة");}}}><Star size={20} fill={favorites.includes(product.id)?"currentColor":"none"}/></button><Btn disabled={!printerSettings.enabled} onClick={()=>previewProductLabel(product)}>ملصق</Btn><Btn onClick={()=>openEditProduct(product)}>تعديل</Btn>{product.custom&&<><Btn onClick={()=>approve(`${product.available===false?'تفعيل':'إيقاف'} الصنف · ${product.name}`,()=>{updateRegisteredProduct({...product,available:product.available===false});setCatalogVersion(v=>v+1);setModal('products');announce(product.available===false?'تم تفعيل الصنف':'تم إيقاف الصنف');})}>{product.available===false?'تفعيل':'إيقاف'}</Btn><Btn variant="danger" disabled={used} onClick={()=>approve(`حذف الصنف · ${product.name}`,()=>{deleteRegisteredProduct(product.id);setCatalogVersion(v=>v+1);setModal('products');announce('تم حذف الصنف');})}>حذف</Btn></>}</div>
                           </article>;
                         })}
                       </div>
-                      <p className="muted">لا يمكن حذف صنف مستخدم في سلة أو معاملة؛ أوقفه بدلاً من ذلك.</p>
+                      <p role="status">{!matchingProducts.length ? "لا توجد أصناف مطابقة" : `${matchingProducts.length} صنف`}</p>
                     </>
                   )}
                   {modal === "inventory" && (
                     <>
                       <div className="inventory-receive">
-                        <label>الصنف<select value={inventoryProductId} onChange={e=>setInventoryProductId(e.target.value)}>{products.filter(p=>p.available!==false).map(p=><option key={p.id} value={p.id}>{p.name} · {p.stock}</option>)}</select></label>
-                        <label>الكمية المستلمة<input inputMode="numeric" value={receiveQuantity} onChange={e=>setReceiveQuantity(normalizeDigits(e.target.value).replace(/\D/g,''))}/></label>
-                        <label>المورّد / مرجع الاستلام<input value={receiveSupplier} onChange={e=>setReceiveSupplier(e.target.value)} maxLength={120}/></label>
-                        <Btn variant="primary" onClick={receiveStock}>استلام وإضافة للمخزون</Btn>
+                        <label className="receiving-product">الفئة<select value={receiveCategory} onChange={e=>{setReceiveCategory(e.target.value);setInventoryProductId("");setReceiveCost("");setError("");}}><option value="">اختر الفئة</option>{categories.filter(c=>c.id!=="all").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+                        <div className="receiving-search" onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();lookupReceiving();}}}><label>باركود<input autoFocus inputMode="numeric" value={receiveBarcode} onChange={e=>{setReceiveBarcode(normalizeDigits(e.target.value));setInventoryProductId("");setReceiveCost("");}}/></label><Btn onClick={lookupReceiving}>بحث</Btn></div>
+                        {inventoryProductId && <div className="receiving-product receiving-match" role="status"><strong>{productById(inventoryProductId).name}</strong><small>المتوفر: {productById(inventoryProductId).stock}</small></div>}
+                        <label>سعر القطعة<input inputMode="numeric" value={receiveCost} onChange={e=>setReceiveCost(normalizeDigits(e.target.value))}/></label><label>الكمية المستلمة<input inputMode="numeric" value={receiveQuantity} onChange={e=>setReceiveQuantity(normalizeDigits(e.target.value).replace(/\D/g,''))}/></label>
+                        <div className="receiving-actions"><Btn variant="primary" onClick={receiveStock}>تأكيد الاستلام</Btn></div>
                       </div>
-                      <h3 className="inventory-heading">حالة المخزون</h3>
-                      <div className="inventory-stock-list">{products.map(p=><div key={p.id}><span>{p.name}</span><strong className={p.stock<=(p.minStock||0)?'stock-low':''}>{p.stock}</strong></div>)}</div>
-                      <h3 className="inventory-heading">آخر الحركات</h3>
-                      <div className="inventory-movements">{inventoryMovements().map(m=><div key={m.id}><span><strong>{productById(m.productId)?.name || m.productId}</strong><small>{({sale:'بيع',refund:'استرجاع',void:'إلغاء معاملة',receive:'استلام',adjust:'تسوية'} as const)[m.type]} · {m.reference}{m.supplier?` · ${m.supplier}`:''}</small></span><b className={m.delta>0?'movement-in':'movement-out'}>{m.delta>0?'+':''}{m.delta}</b><small>الرصيد {m.balance}</small></div>)}{!inventoryMovements().length&&<p className="muted">لا توجد حركات مخزون بعد.</p>}</div>
                     </>
                   )}
                   {modal === "quantity" && selectedLine && (
@@ -1221,7 +1140,7 @@ export function App() {
                               ),
                             });
                             setModal(null);
-                          } else setError("أدخل كمية من ١ إلى ٩٩٩");
+                          } else setError("أدخل كمية من 1 إلى 999");
                         }}
                       >
                         {input === "0" ? "تأكيد حذف الصنف" : "حفظ التعديل"}
@@ -1247,8 +1166,8 @@ export function App() {
                           <h2>{checkedProduct.name}</h2>
                           <strong>{money(checkedScale?.priceOverride ?? checkedProduct.price)}</strong>
                           {checkedScale?.scaleWeight&&<p>وزن الملصق: {checkedScale.scaleWeight} كغ</p>}
-                          <p>ضريبة ١٠٪ · متوفر</p>
-                          {checkedProduct.id === "p10" && (
+                          <p>ضريبة 10٪ · متوفر</p>
+                          {salesSettings.demoMode !== false && checkedProduct.id === "p10" && (
                             <p>عرض: عبوتان بسعر واحدة</p>
                           )}
                           <Btn
@@ -1287,9 +1206,6 @@ export function App() {
                             ) && <><p>الباركود غير معروف</p>{/^\d{4,32}$/.test(input)&&<Btn variant="full" onClick={()=>openNewProduct(input)}>تسجيل هذا الباركود كصنف جديد</Btn>}</>}
                         </div>
                       )}
-                      <p className="muted">
-                        فحص السعر لا يضيف الصنف إلى السلة.
-                      </p>
                     </>
                   )}
                   {modal === "age" && pendingProduct && (
@@ -1375,7 +1291,7 @@ export function App() {
                       />
                       <Numpad value={input} onChange={setInput} />
                       <p className="muted">
-                        الخصم فوق ١٠٪ يتطلب موافقة المدير.
+                        الخصم فوق 10% يتطلب موافقة المدير. اختر خصم السلة أو الأصناف؛ لا يجمع مع الجملة أو الكوبونات، ويوقف العروض التلقائية.
                       </p>
                       <Btn variant="primary full" onClick={applyDiscount}>
                         تطبيق الخصم
@@ -1408,6 +1324,7 @@ export function App() {
                   )}
                   {modal === "coupon" && (
                     <>
+                      {salesSettings.demoMode !== false && <>
                       <div className="promo-card">
                         <Ticket />
                         <div>
@@ -1419,22 +1336,24 @@ export function App() {
                       <div className="promo-card">
                         <Percent />
                         <div>
-                          <h3>خصم ترحيبي ١٠٪</h3>
+                          <h3>خصم ترحيبي 10٪</h3>
                           <p>WELCOME10 · الأصناف المؤهلة فقط</p>
                         </div>
                       </div>
                       <div className="promo-card">
                         <Coffee />
                         <div>
-                          <h3>٥٬٠٠٠ د.ع على الحلويات</h3>
-                          <p>DESSERT5 · عند شراء حلويات بـ ٢٠٬٠٠٠ د.ع</p>
+                          <h3>5,000 د.ع. على الحلويات</h3>
+                          <p>DESSERT5 · عند شراء حلويات بـ 20,000 د.ع.</p>
                         </div>
                       </div>
+                      </>}
+                      {(salesSettings.offers || []).filter(o=>o.active).map(o=><div className="promo-card" key={o.id}><div><strong>{o.name}</strong><p>{o.code || 'تلقائي'} · {o.value}{o.kind==='percent'?'%':' د.ع.'}</p></div></div>)}
                       <Field
                         label="رمز الكوبون"
                         value={input}
                         onChange={(v) => setInput(v.trim().toUpperCase())}
-                        placeholder="WELCOME10"
+                        placeholder="رمز الكوبون"
                       />
                       <Btn
                         variant="primary full"
@@ -1463,192 +1382,32 @@ export function App() {
                       )}
                     </>
                   )}
-                  {modal === "customer" && (
-                    <>
-                      {customer && (
-                        <div className="customer-profile">
-                          <span className="avatar">{customer.name[0]}</span>
-                          <div>
-                            <h3>{customer.name}</h3>
-                            <p>
-                              {customer.tier} · {customer.points} نقطة
-                            </p>
-                          </div>
-                          <Btn
-                            onClick={() => {
-                              update({
-                                ...current,
-                                customer: undefined,
-                                reward: false,
-                              });
-                              announce("تم فصل العميل");
-                            }}
-                          >
-                            فصل
-                          </Btn>
-                        </div>
-                      )}
-                      {customer && (
-                        <>
-                          <Btn
-                            variant="full"
-                            disabled={
-                              !current.reward && (customer.points < 500 || totals.rows.filter(r=>r.eligible).reduce((sum,r)=>sum+r.net,0)<5000)
-                            }
-                            onClick={() => {
-                              if (current.reward)
-                                update({ ...current, reward: false });
-                              else ask("استبدال ٥٠٠ نقطة بخصم ٥٬٠٠٠ د.ع؟",()=>{update({...current,reward:true});setModal('customer')});
-                            }}
-                          >
-                            {current.reward
-                              ? "إلغاء المكافأة"
-                              : "استبدال ٥٠٠ نقطة · خصم ٥٬٠٠٠ د.ع"}
-                          </Btn>
-                          <div className="flex gap-2">
-                            <input
-                              aria-label="رصيد النقاط الجديد"
-                              placeholder="رصيد النقاط الجديد"
-                              value={aux}
-                              onChange={(e) => setAux(normalizeDigits(e.target.value))}
-                            />
-                            <Btn
-                              onClick={() => {
-                                const n = Number(aux);
-                                if (!aux.trim() || !Number.isSafeInteger(n) || n < 0 || n>999999999) {
-                                  setError("أدخل رصيداً صالحاً");
-                                  return;
-                                }
-                                approve("تعديل رصيد الولاء", () =>
-                                  dispatch({
-                                    type: "customer",
-                                    customer: { ...customer, points: n },
-                                  }),
-                                );
-                              }}
-                            >
-                              تعديل النقاط
-                            </Btn>
-                          </div>
-                        </>
-                      )}
-                      <Field
-                        label="بحث بالاسم أو الهاتف أو بطاقة الولاء"
-                        value={customerQuery}
-                        onChange={setCustomerQuery}
-                      />
-                      <div className="choice-list">
-                        {state.customers
-                          .filter((c) =>
-                            [c.name, c.phone, c.card].some((v) =>
-                              v.includes(customerQuery),
-                            ),
-                          )
-                          .map((c) => (
-                            <button
-                              key={c.id}
-                              onClick={() => {
-                                update({
-                                  ...current,
-                                  customer: c.id,
-                                  reward: false,
-                                });
-                                setModal(null);
-                                announce(`تم إرفاق ${c.name}`);
-                              }}
-                            >
-                              <span>
-                                {c.name}
-                                <small dir="ltr">
-                                  {c.phone} · {c.card}
-                                </small>
-                              </span>
-                              <Stamp>{c.points} نقطة</Stamp>
-                            </button>
-                          ))}
-                      </div>
-                      <Btn
-                        variant="full"
-                        onClick={() => setNewCustomer(!newCustomer)}
-                      >
-                        <Plus size={17} /> عميل جديد
-                      </Btn>
-                      {newCustomer && (
-                        <>
-                          <Field
-                            label="اسم العميل"
-                            value={input}
-                            onChange={setInput}
-                          />
-                          <Field
-                            label="رقم الهاتف"
-                            value={newCustomerPhone}
-                            onChange={setNewCustomerPhone}
-                            placeholder="07701234567"
-                          />
-                          <Btn
-                            variant="primary full"
-                            onClick={() => {
-                              if (
-                                !input.trim() ||
-                                !/^07\d{9}$/.test(normalizePhone(newCustomerPhone))
-                              ) {
-                                setError("أدخل الاسم ورقم هاتف عراقياً صحيحاً");
-                                return;
-                              }
-                              if(state.customers.some(c=>normalizePhone(c.phone)===normalizePhone(newCustomerPhone))){setError("رقم الهاتف مسجل. ابحث عن العميل لإرفاقه.");return;}
-                              const c: Customer = {
-                                id: uid(),
-                                name: input.trim(),
-                                phone: normalizePhone(newCustomerPhone),
-                                points: 0,
-                                tier: "جديد",
-                                card: String(Date.now()),
-                              };
-                              dispatch({ type: "customer", customer: c });
-                              update({
-                                ...current,
-                                customer: c.id,
-                                reward: false,
-                              });
-                              setModal(null);
-                            }}
-                          >
-                            حفظ وإرفاق العميل
-                          </Btn>
-                        </>
-                      )}
-                    </>
-                  )}
                   {modal === "hold" && (
                     <>
                       <p>
-                        سيتم حفظ {totals.count} أصناف بقيمة{" "}
+                        <strong>{productById(current.lines[0]?.productId)?.name}</strong><br/>
+                        {totals.count} أصناف · {" "}
                         {money(totals.total)}.
                       </p>
-                      <Field
-                        label="اسم أو ملاحظة للطلب"
-                        value={input}
-                        onChange={setInput}
-                      />
                       <Btn
                         variant="primary full"
                         onClick={() => {
                           dispatch({
                             type: "sale",
-                            sale: { ...current, note: input },
+                            sale: { ...current, note: productById(current.lines[0]?.productId)?.name || "طلب معلق" },
                           });
                           dispatch({ type: "hold" });
                           setModal(null);
                           announce("تم تعليق البيع");
                         }}
                       >
-                        <Pause size={18} /> تعليق البيع
+                        حفظ في المبيعات المعلقة
                       </Btn>
                     </>
                   )}
                   {modal === "recall" && (
                     <>
+
                       {!state.held.length ? (
                         <div className="empty">
                           <FolderOpen />
@@ -1656,41 +1415,29 @@ export function App() {
                         </div>
                       ) : (
                         <>
-                          <Field
-                            label="بحث بالرقم أو العميل أو الملاحظة"
-                            value={input}
-                            onChange={setInput}
-                          />
                           <div className="choice-list">
                             {state.held
-                              .filter((s) =>
-                                [
-                                  s.id,
-                                  s.note,
-                                  state.customers.find(
-                                    (c) => c.id === s.customer,
-                                  )?.name || "",
-                                ].some((v) => v.includes(input)),
-                              )
                               .map((s) => (
+                                <div className="held-sale-row" key={s.id}>
                                 <button
-                                  key={s.id}
                                   onClick={() => {
                                     const recall=()=>{dispatch({type:'recall',id:s.id});setModal(null);announce('تم استدعاء البيع')};
                                     if(current.lines.length)ask('سيتم تعليق السلة الحالية واستدعاء الطلب المحدد. متابعة؟',recall);else recall();
                                   }}
                                 >
                                   <span>
-                                    #{s.id} · {s.note || "طلب معلق"}
+                                    #{s.id} · {productById(s.lines[0]?.productId)?.name || s.note || "طلب معلق"}
                                     <small>
                                       {price(s).count} أصناف ·{" "}
                                       {new Date(s.createdAt).toLocaleTimeString(
-                                        "ar-IQ",
+                                        "en-GB",
                                       )}
                                     </small>
                                   </span>
                                   <strong>{money(price(s).total)}</strong>
                                 </button>
+                                <Btn variant="danger" label={`حذف البيع المعلق #${s.id}`} onClick={()=>ask(`حذف البيع المعلق #${s.id}؟`,()=>{dispatch({type:'deleteHeld',id:s.id});setModal('recall');announce('تم حذف البيع المعلق');})}>حذف</Btn>
+                                </div>
                               ))}
                           </div>
                         </>
@@ -1735,71 +1482,15 @@ export function App() {
                     <>
                       <div className="payment-summary">
                         <span>
-                          {split ? "المتبقي للدفع" : "المبلغ المطلوب"}
+                          المبلغ المطلوب
                         </span>
                         <strong>{money(remaining)}</strong>
                         {paid > 0 && <small>المدفوع {money(paid)}</small>}
                       </div>
-                      <div className="payment-layout">
-                        <div>
-                          <div className="payment-methods">
-                            {(["cash", "card", "contactless"] as const).map(
-                              (m) => (
-                                <button
-                                  key={m}
-                                  disabled={processing}
-                                  className={method === m ? "active" : ""}
-                                  onClick={() => {
-                                    setMethod(m);
-                                    setPayResult("");
-                                    setError("");
-                                    setInput(String(remaining));
-                                  }}
-                                >
-                                  {m === "cash" ? (
-                                    <Banknote />
-                                  ) : m === "card" ? (
-                                    <CreditCard />
-                                  ) : (
-                                    <Smartphone />
-                                  )}
-                                  {methods[m]}
-                                </button>
-                              ),
-                            )}
-                          </div>
-                          <label className="check-row">
-                            <input
-                              type="checkbox"
-                              checked={split}
-                              disabled={payments.length > 0 || processing}
-                              onChange={(e) => setSplit(e.target.checked)}
-                            />{" "}
-                            تقسيم المبلغ بين عدة وسائل
-                          </label>
-                          {payments.map((p) => (
-                            <div className="payment-record" key={p.id}>
-                              <Check size={15} />
-                              {methods[p.method]}
-                              <strong>{money(p.amount)}</strong>
-                            </div>
-                          ))}
-                          <p className="muted">
-                            الدفع محاكاة محلية. لا تُدخل بيانات بطاقة حقيقية.
-                          </p>
-                          {payResult && (
-                            <p role="status" className="payment-result">
-                              {payResult}
-                            </p>
-                          )}
-                        </div>
-                        <div>
+                      <p className="muted">دفع تجريبي؛ لا يتم تحصيل أموال فعلية.</p><div className="payment-layout payment-cash-only">
+                        <div className="payment-entry">
                           <Field
-                            label={
-                              method === "cash"
-                                ? "المبلغ المستلم نقداً"
-                                : "مبلغ الدفعة"
-                            }
+                            label="المبلغ المستلم"
                             value={input}
                             onChange={(v) => {
                               if (!processing) setInput(v);
@@ -1811,74 +1502,13 @@ export function App() {
                               if (!processing) setInput(v);
                             }}
                           />
-                          {method === "cash" ? (
-                            <>
-                              <div className="quick-cash">
-                                {[remaining, 25000, 50000, 100000]
-                                  .filter((v, i, a) => a.indexOf(v) === i)
-                                  .map((v) => (
-                                    <button
-                                      key={v}
-                                      onClick={() => setInput(String(v))}
-                                    >
-                                      {v === remaining
-                                        ? "المبلغ بالضبط"
-                                        : money(v)}
-                                    </button>
-                                  ))}
-                              </div>
-                              <div className="change-due">
-                                <span>
-                                  {Number(input) >= remaining
-                                    ? "الباقي للعميل"
-                                    : "المتبقي"}
-                                </span>
-                                <strong>
-                                  {money(
-                                    Math.abs((Number.isFinite(Number(input)) ? Number(input) : 0) - remaining),
-                                  )}
-                                </strong>
-                              </div>
-                              <Btn variant="pay full" onClick={payCash}>
-                                <Check size={20} />{" "}
-                                {split
-                                  ? "تسجيل الدفعة النقدية"
-                                  : "تأكيد الدفع النقدي"}
-                              </Btn>
-                            </>
-                          ) : (
-                            <>
-                              <Btn
-                                variant="pay full"
-                                disabled={processing}
-                                onClick={() => electronic("approved")}
-                              >
-                                {processing
-                                  ? "جارٍ المعالجة…"
-                                  : "محاكاة موافقة الدفع"}
-                              </Btn>
-                              <div className="flex gap-2">
-                                <Btn
-                                  disabled={processing}
-                                  onClick={() => electronic("declined")}
-                                >
-                                  رفض
-                                </Btn>
-                                <Btn
-                                  disabled={processing}
-                                  onClick={() => electronic("timeout")}
-                                >
-                                  انتهاء المهلة
-                                </Btn>
-                                <Btn
-                                  disabled={processing}
-                                  onClick={() => electronic("cancelled")}
-                                >
-                                  إلغاء المحاولة
-                                </Btn>
-                              </div>
-                            </>
-                          )}
+                          <div className="change-due">
+                            <span>{Number(input) >= remaining ? "الباقي للعميل" : "المتبقي"}</span>
+                            <strong>{money(Math.abs((Number.isFinite(Number(input)) ? Number(input) : 0) - remaining))}</strong>
+                          </div>
+                          <Btn variant="pay full" onClick={payCash}>
+                            {splitPayment && Number(input) < remaining ? "إضافة دفعة" : "دفع"}
+                          </Btn>
                         </div>
                       </div>
                     </>
@@ -1891,17 +1521,6 @@ export function App() {
                       <div className="receipt-summary">
                         <h2>{money(transaction?.total || 0)}</h2>
                         <p>الطلب #{receiptId} · تمت العملية</p>
-                        {transaction?.payments.some((p) => p.change > 0) && (
-                          <strong>
-                            الباقي للعميل:{" "}
-                            {money(
-                              transaction.payments.reduce(
-                                (s, p) => s + p.change,
-                                0,
-                              ),
-                            )}
-                          </strong>
-                        )}
                       </div>
                       {drawerOpen && (
                         <div className="drawer-banner">
@@ -1922,20 +1541,9 @@ export function App() {
                       )}
                       {!receiptPhase ? (
                         <>
-                          <p>كيف يرغب العميل باستلام الإيصال؟</p>
                           <div className="receipt-options">
                             {[
                               ...(printerSettings.enabled ? [{ id: "print", name: "طباعة", icon: Printer }] : []),
-                              {
-                                id: "email",
-                                name: "بريد إلكتروني",
-                                icon: Mail,
-                              },
-                              {
-                                id: "sms",
-                                name: "رسالة SMS",
-                                icon: MessageSquare,
-                              },
                               { id: "none", name: "بدون إيصال", icon: X },
                             ].map((o) => (
                               <button
@@ -1954,30 +1562,17 @@ export function App() {
                               </button>
                             ))}
                           </div>
-                          {["email", "sms"].includes(receiptChoice) && (
-                            <Field
-                              label={
-                                receiptChoice === "email"
-                                  ? "البريد الإلكتروني"
-                                  : "رقم الهاتف"
-                              }
-                              value={input}
-                              onChange={setInput}
-                            />
-                          )}
                           <Btn variant="primary full" onClick={saveReceipt}>
-                            {receiptChoice === "print" ? "معاينة وطباعة الإيصال" : receiptChoice === "none" ? "تأكيد بدون إيصال" : "محاكاة إرسال الإيصال"}
+                            {receiptChoice === "print" ? "معاينة وطباعة الإيصال" : "تأكيد بدون إيصال"}
                           </Btn>
-                          {receiptChoice === "print" && <Btn variant="full" onClick={() => {setPrinterReturn("receipt"); open("printer");}}><Printer size={18}/> إعدادات الطابعة الحرارية</Btn>}
+                          {receiptChoice === "print" && <Btn variant="full" onClick={() => {setPrinterReturn("receipt"); open("settings");}}><Printer size={18}/> إعدادات الطابعة الحرارية</Btn>}
                         </>
                       ) : (
                         <>
                           <p className="receipt-done">
                             {receiptChoice === "print"
                               ? "فُتحت معاينة الإيصال. المتصفح لا يؤكد خروج الورق؛ تحقق من الطابعة."
-                              : receiptChoice === "none"
-                                ? "تم إتمام البيع بدون إيصال"
-                                : "تمت محاكاة إرسال الإيصال"}
+                              : "تم إتمام البيع بدون إيصال"}
                           </p>
                           {receiptChoice === "print" && <Btn variant="full" onClick={saveReceipt}>إعادة فتح معاينة الطباعة</Btn>}
                           <Btn
@@ -1995,55 +1590,43 @@ export function App() {
                     </>
                   )}
                   {modal === "reports" && (
-                    <section className="reports-panel" aria-label="ملخص تقارير اليوم">
-                      <div className="report-summary">
+                    <section className="reports-panel" aria-label="تقارير الفترة المحددة">
+                      <div className="management-toolbar"><label>من تاريخ<input type="date" value={reportFrom} onChange={e=>setReportFrom(e.target.value)}/></label><label>إلى تاريخ<input type="date" value={reportTo} onChange={e=>setReportTo(e.target.value)}/></label><label>التقرير<select value={reportView} onChange={e=>setReportView(e.target.value)}><option value="summary">الملخص</option><option value="sales">المبيعات</option><option value="refunds">الاسترجاعات</option><option value="products">ربحية الأصناف</option><option value="receiving">الاستلام</option><option value="movements">حركات المخزون</option></select></label></div>{!reportRangeValid&&<p role="alert">اختر فترة صحيحة: تاريخ البداية لا يتجاوز النهاية</p>}{["summary","products"].includes(reportView)&&report.missingCostLines>0&&<p role="status">{report.missingCostLines} سطر بلا تكلفة تاريخية؛ مستبعدة من الربح التقديري.</p>}{report.legacyDates&&<p className="muted">بعض السجلات القديمة بلا وقت تنفيذ؛ استُخدم تاريخ البيع كمرجع.</p>}<div hidden={reportView!=="summary"} className="report-summary">
                         <article><span>صافي المبيعات</span><strong>{money(report.netSales)}</strong></article>
                         <article><span>المبيعات المكتملة</span><strong>{report.completedCount}</strong></article>
                         <article><span>الاسترجاعات</span><strong>{money(report.refundTotal)}</strong><small>{report.refundCount} عمليات</small></article>
                         <article><span>الربح التقديري</span><strong>{money(report.estimatedProfit)}</strong><small>قبل المصاريف التشغيلية</small></article>
-                        <article><span>المعاملات الملغاة</span><strong>{report.voidCount}</strong></article>
+
                       </div>
-                      <div className="report-columns">
+                      {reportView === "summary" && !report.completedCount && !report.refundCount && <p className="empty-report">لا توجد معاملات في الفترة المحددة</p>}
+                      <div hidden={reportView!=="summary" || (!report.completedCount && !report.refundCount)} className="report-columns">
                         <section><h3>صافي طرق الدفع</h3><dl className="report-list"><div><dt>نقداً</dt><dd>{money(report.paymentTotals.cash)}</dd></div><div><dt>بطاقة مصرفية</dt><dd>{money(report.paymentTotals.card)}</dd></div><div><dt>دفع لاتلامسي</dt><dd>{money(report.paymentTotals.contactless)}</dd></div></dl></section>
-                        <section><h3>الأصناف الأكثر مبيعاً</h3><div className="report-scroll">{report.bestSellers.length ? report.bestSellers.map((item,index)=><div className="report-row" key={item.productId}><span><b>{index+1}</b>{item.name}</span><span>{Number(item.quantity.toFixed(3))} · {money(item.revenue)}</span></div>) : <p className="empty-report">لا توجد مبيعات مكتملة اليوم</p>}</div></section>
-                        <section><h3>المخزون المنخفض</h3><div className="report-scroll">{report.lowStock.length ? report.lowStock.map(item=><div className="report-row" key={item.productId}><span>{item.name}</span><span>{item.stock} / {item.minimum}</span></div>) : <p className="empty-report">لا توجد أصناف تحت الحد الأدنى</p>}</div></section>
+                        <section><h3>الأصناف الأكثر مبيعاً</h3><div className="report-scroll">{report.bestSellers.length ? report.bestSellers.map((item,index)=><div className="report-row" key={item.productId}><span><b>{index+1}</b>{item.name}</span><span>{Number(item.quantity.toFixed(3))} · {money(item.revenue)}</span></div>) : <p className="empty-report">لا توجد مبيعات في الفترة المحددة</p>}</div></section>
+
                       </div>
-                      <p className="report-note">الأرقام تخص معاملات اليوم المحفوظة في هذا المتصفح. صافي المبيعات وطرق الدفع يطرحان الاسترجاعات ولا يحتسبان المعاملات الملغاة. الربح تقديري من سعر البيع قبل الضريبة ناقص تكلفة الصنف، ولا يشمل المصاريف التشغيلية.</p>
-                      <div className="report-actions"><Btn variant="primary" onClick={exportReport}><Download size={18}/> تصدير CSV</Btn><Btn onClick={() => open("settings")}>رجوع</Btn></div>
+                      {reportView === "sales" && report.voidCount > 0 && <p>المعاملات الملغاة: {report.voidCount} · مستبعدة من المبيعات</p>}
+                      <ReportDetails report={report} view={reportView}/><p className="report-note">بيانات هذا المتصفح فقط.{reportView === "refunds" && " الاسترجاعات بتاريخ التنفيذ."}{reportView === "products" && " الربح تقديري قبل المصاريف التشغيلية."}</p>
+                      <div className="report-actions"><Btn variant="primary" disabled={!reportRangeValid} onClick={exportReport}><Download size={18}/> تصدير CSV</Btn></div>
                     </section>
                   )}
-                  {modal === "settings" && (
-                    <div className="choice-list">
-                      <button onClick={() => {setPrinterReturn("settings");open("printer");}}><Printer /> إعدادات الطابعة الحرارية <ChevronLeft /></button>
-                      <button onClick={() => open("reports")}><BarChart3 /> تقارير اليوم <ChevronLeft /></button>
-                      <button onClick={() => open("products")}><ShoppingBag /> إدارة الأصناف <ChevronLeft /></button>
-                      <button onClick={() => {setReceiveQuantity("");setReceiveSupplier("");open("inventory");}}><FolderOpen /> المخزون والاستلام <ChevronLeft /></button>
-                      <button onClick={() => openNewProduct()}><ScanBarcode /> تسجيل صنف جديد <ChevronLeft /></button>
-                    </div>
-                  )}
-                  {modal === "printer" && <PrinterSettings value={printerSettings} onSave={setPrinterSettings} onPreview={previewPrint}/>} 
+                  {modal === "settings" && <PrinterSettings value={printerSettings} onSave={setPrinterSettings} onPreview={previewPrint} onDirtyChange={setPrinterDirty} storeContent={<>
+                    <details className="disclosure"><summary>الفئات</summary><CategorySettings onSave={()=>setCatalogVersion(v=>v+1)} onDirtyChange={setCategoriesDirty} approve={approve}/></details>
+                    <details className="disclosure"><summary>البيع بالجملة</summary><WholesaleSettings onDirtyChange={setWholesaleDirty} value={salesSettings} onSave={setSalesSettings} approve={approve}/></details>
+                    <details className="disclosure"><summary>العروض ووضع التجربة</summary><OfferSettings onDirtyChange={setOffersDirty} value={salesSettings} onSave={setSalesSettings} approve={approve}/></details>
+                    {salesSettings.demoMode !== false && <details className="demo-maintenance"><summary>صيانة النسخة التجريبية</summary><p>إعادة بيانات البيع التجريبية تتطلب تأكيداً وموافقة المدير.</p><Btn variant="danger" disabled={printerDirty || wholesaleDirty || offersDirty} onClick={() => ask("سيتم حذف بيانات هذه النسخة التجريبية فقط. متابعة؟",()=>approve("إعادة بيانات التجربة", () => {dispatch({ type: "reset" });setModal(null);announce("تمت إعادة بيانات التجربة");}))}>إعادة بيانات التجربة</Btn></details>}
+                  </>}/>}
                   {modal === "drawer" && (
                     <>
-                      <div className="approval-icon">
-                        <Banknote size={40} />
-                      </div>
-                      <h3>
-                        {drawerOpen
-                          ? "درج النقد مفتوح"
-                          : "فتح درج النقد يدوياً"}
-                      </h3>
+                      {drawerOpen && <p role="status">تمت محاكاة فتح الدرج</p>}
                       {!drawerOpen ? (
                         <>
-                          <Field
-                            label="سبب فتح الدرج"
-                            value={aux}
-                            onChange={setAux}
-                          />
+                          <label className="field">سبب فتح الدرج<select value={aux} onChange={e=>setAux(e.target.value)}><option value="">اختر السبب</option>{printerSettings.drawerReasons.map(reason=><option key={reason} value={reason}>{reason}</option>)}</select></label>
                           <Btn
                             variant="primary full"
                             disabled={!aux.trim()}
                             onClick={() =>
                               approve("فتح درج النقد يدوياً", () => {
+                                if(!printerSettings.drawerReasons.includes(aux)){setError("اختر سبب فتح الدرج");return;}
                                 setDrawerOpen(true);
                                 dispatch({
                                   type: "audit",
@@ -2076,23 +1659,8 @@ export function App() {
                       )}
                     </>
                   )}
-                  {modal === "history" && (
+                  {(modal === "history" || modal === "audit") && (
                     <>
-                      <div className="segment">
-                        {(["sales", "refunds", "audit"] as const).map((v) => (
-                          <button
-                            key={v}
-                            className={historyTab === v ? "active" : ""}
-                            onClick={() => setHistoryTab(v)}
-                          >
-                            {v === "sales"
-                              ? "المبيعات"
-                              : v === "refunds"
-                                ? "الاسترجاع"
-                                : "سجل العمليات"}
-                          </button>
-                        ))}
-                      </div>
                       <Field
                         label={historyTab === 'audit' ? 'بحث في سجل العمليات' : 'بحث برقم الإيصال'}
                         value={historyQuery}
@@ -2101,7 +1669,7 @@ export function App() {
                       {historyTab === "sales" ? (
                         <div className="transaction-list">
                           {state.transactions
-                            .filter((t) => t.sale.id.includes(historyQuery))
+                            .filter((t) => t.sale.id.includes(historyQuery) && (!selectingReturn || t.status!=="void" && t.sale.lines.some(l=>(t.refunded[l.id]||0)<l.quantity)))
                             .map((t) => (
                               <div className="transaction-card" key={t.sale.id}>
                                 <div className="flex justify-between">
@@ -2133,7 +1701,7 @@ export function App() {
                                   >
                                     استرجاع
                                   </Btn>
-                                  <Btn
+                                  {!selectingReturn && <><Btn
                                     disabled={
                                       t.status === "void" ||
                                       Object.values(t.refunded).some(
@@ -2172,13 +1740,13 @@ export function App() {
                                     }}
                                   >
                                     <ReceiptText size={16} />
-                                  </Btn>
+                                  </Btn></>}
                                 </div>
                               </div>
                             ))}
-                          {!state.transactions.length && (
+                          {!state.transactions.some(t=>t.sale.id.includes(historyQuery) && (!selectingReturn || t.status!=="void" && t.sale.lines.some(l=>(t.refunded[l.id]||0)<l.quantity))) && (
                             <p className="empty">
-                              لا توجد معاملات بعد. أكمل عملية بيع أولاً.
+                              {selectingReturn ? "لا توجد فواتير قابلة للاسترجاع مطابقة للبحث" : "لا توجد معاملات مطابقة"}
                             </p>
                           )}
                         </div>
@@ -2223,7 +1791,7 @@ export function App() {
                               <p>{a.reason}</p>
                               <small>
                                 {a.cashier} {a.manager && `· ${a.manager}`} ·{" "}
-                                {new Date(a.at).toLocaleString("ar-IQ")}
+                                {new Date(a.at).toLocaleString("en-GB")}
                               </small>
                             </div>
                           ))}
@@ -2314,7 +1882,7 @@ export function App() {
                                 reason: aux,
                                 cash: refundCash,
                               });
-                              setModal("history");
+                              setSelectingReturn(false);setModal("history");
                               setHistoryTab("refunds");
                               announce("تم الاسترجاع وإنشاء إيصال");
                             },
@@ -2327,35 +1895,11 @@ export function App() {
                   )}
                   {modal === "help" && (
                     <div className="help">
-                      <p>
-                        نسخة محلية لتجربة واجهة نقطة البيع. الضرائب والعمر
-                        إعدادات تجريبية قابلة للاستبدال.
-                      </p>
-                      <h3>رموز التجربة</h3>
-                      <p>
-                        رمز المدير: <b dir="ltr">2468</b>
-                      </p>
-                      <p>
-                        باركود البسكويت: <b dir="ltr">100001</b>
-                        <br />
-                        باركود العصير: <b dir="ltr">100010</b>
-                      </p>
-                      <p>
-                        بطاقة أحمد: <b dir="ltr">200001</b>
-                      </p>
-                      <p>
-                        العروض: <b dir="ltr">WELCOME10 · DESSERT5 · JUICE2</b>
-                      </p>
-                      <h3>الدفع والأجهزة</h3>
-                      <p>
-                        المدفوعات والرسائل ودرج النقد محاكاة. طباعة الإيصالات من نافذة المتصفح عبر تعريف Windows. قارئ
-                        الباركود الذي يعمل كلوحة مفاتيح مدعوم. البيانات محفوظة
-                        في هذا المتصفح.
-                      </p>
+                      {salesSettings.demoMode !== false ? <><p>رمز المدير: <b dir="ltr">2468</b></p><details className="disclosure"><summary>رموز التجربة</summary><p>باركود البسكويت: 100001 · باركود العصير: 100010</p><p>WELCOME10 · DESSERT5 · JUICE2</p></details><p>المدفوعات ودرج النقد محاكاة. طباعة الإيصالات عبر نافذة المتصفح.</p></> : <><p>ابحث عن الصنف باسمه أو امسح الباركود، ثم راجع السلة واختر الدفع.</p><p>للاسترجاع اختر بدء استرجاع وحدد الفاتورة. إعدادات الأجهزة والمتجر والإيصال متاحة في الإعدادات.</p></>}
+                      <p>قارئ الباركود الذي يعمل كلوحة مفاتيح مدعوم. البيانات محفوظة في هذا المتصفح.</p>
                     </div>
                   )}
-                </>
-              )}
+                </div>
               {modal === "receipt" && transaction && !approval && (
                 <ReceiptPreview transaction={transaction} settings={printerSettings} />
               )}{" "}

@@ -7,7 +7,7 @@ describe('daily supermarket reports',()=>{
     const state=seed(), today='2026-09-14T10:00:00Z';
     const sale={...state.sale,id:'900',createdAt:today,lines:[{id:'line',productId:'p1',quantity:2}]};
     const pricing=price(sale);
-    const tx:Transaction={sale,payments:[{id:'pay',method:'cash',amount:pricing.total,tendered:pricing.total,change:0}],total:pricing.total,status:'completed',refunded:{line:1},pricing};
+    const tx:Transaction={sale,payments:[{id:'pay',method:'cash',amount:pricing.total,tendered:pricing.total,change:0}],total:pricing.total,status:'completed',refunded:{line:1},unitCosts:{line:5600},pricing};
     const voidSale={...sale,id:'901'};
     state.transactions=[tx,{...tx,sale:voidSale,status:'void'}];
     state.refunds=[{id:'refund',transactionId:'900',lines:{line:1},total:pricing.total/2,reason:'مرتجع',allocations:[{method:'cash',amount:pricing.total/2}]}];

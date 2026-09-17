@@ -10,10 +10,15 @@
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:test": "node --test tests/database.test.mjs",
+    "db:seed:generate": "node scripts/database-seed.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-arabic": "^5.2.0",
+    "@supabase/supabase-js": "^2.116.0",
     "@tailwindcss/vite": "^4.1.0",
     "@types/jsbarcode": "^3.11.4",
     "@vitejs/plugin-react": "5.0.4",
@@ -26,9 +31,12 @@
     "vite": "6.4.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@playwright/test": "^1.55.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "pg": "^8.23.0",
+    "supabase": "^2.117.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   }
