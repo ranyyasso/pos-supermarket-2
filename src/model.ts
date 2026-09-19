@@ -128,6 +128,8 @@ export const categories: { id: string; name: string; tone: Tone }[] = [
   { id: "wine", name: "القرطاسية", tone: "red" },
   { id: "hot", name: "العناية اليومية", tone: "sand" },
 ];
+// Production categories come from Supabase. Keep fixtures only in the test build.
+if (import.meta.env.MODE !== 'test') categories.splice(1);
 export const categoryNameMaxLength = 24;
 export const maxCategories = 13;
 export const categoryStorageKey = 'mizan-categories-v1';
@@ -377,7 +379,7 @@ function calculatePrice(sale: Sale, settings: SalesSettings, legacy: boolean) {
   const wholesaleMode = !legacy && ((settings.wholesaleEnabled && sale.service === 'dinein') || sale.lines.some(l=>l.saleUnit!=='pack' && l.priceOverride===undefined && unitPrice(productById(l.productId), l)<productById(l.productId).price));
   const manualAllowed = legacy || (!wholesaleMode && !sale.coupon);
   const automaticAllowed = legacy || (!wholesaleMode && !sale.coupon && !sale.discount && !sale.lines.some(l => l.discount));
-  const demoOffers = legacy || settings.demoMode !== false;
+  const demoOffers = false;
   const rows = sale.lines.map((l) => {
     const p = productById(l.productId);
     const gross = Math.round((l.priceOverride ?? (l.saleUnit==='pack' ? l.packPrice! : unitPrice(p, l)) * l.quantity) * legacyFactor);
@@ -612,7 +614,7 @@ export function reducer(s: State, a: Action): State {
     reason,
     manager,
     at: new Date().toISOString(),
-    cashier: "سارة حسن",
+    cashier: "",
   });
   switch (a.type) {
     case "sale":

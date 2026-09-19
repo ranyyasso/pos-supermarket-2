@@ -7,6 +7,22 @@ const publishableKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 export const supabaseConfigured = Boolean(url && publishableKey);
 export const supabase = supabaseConfigured ? createClient(url!, publishableKey!) : null;
 
+export type CategoryRow = {id:string;name:string;color:string;display_order:number};
+export async function loadCloudCategories(){
+  if(!supabase)return [] as CategoryRow[];
+  const {data,error}=await supabase.from('categories').select('*').order('display_order');
+  if(error)throw error; return (data||[]) as CategoryRow[];
+}
+export async function createCloudCategory(name:string,color:string,displayOrder:number){
+  if(!supabase)throw new Error('Supabase غير متصل');
+  const {data,error}=await supabase.from('categories').insert({name,color,display_order:displayOrder}).select('*').single();
+  if(error)throw error; return data as CategoryRow;
+}
+export async function deleteCloudCategory(id:string){
+  if(!supabase)throw new Error('Supabase غير متصل');
+  const {error}=await supabase.from('categories').delete().eq('id',id); if(error)throw error;
+}
+
 type ProductRow = {
   id: string;
   barcode?: string;

@@ -23,10 +23,10 @@ export type PrinterSettings = {
 };
 export const printerDefaults: PrinterSettings = {
   theme: "dark",
-  refundReasons: ['صنف تالف', 'صنف غير مطابق', 'تراجع العميل عن الشراء'],
-  enabled: true, width: 80, margin: 2, feed: 8, fontSize: 12, printerName: '',
-  merchant: 'سوبرماركت الصغار', address: 'بغداد · الفرع الرئيسي', phone: '', taxNumber: '',
-  receiptPrefix: '', logoDataUrl: '', drawerKick: true, drawerReasons: ['تبديل نقد', 'إيداع نقد', 'سحب نقد'], footer: 'شكراً لزيارتكم',
+  refundReasons: [],
+  enabled: false, width: 80, margin: 2, feed: 8, fontSize: 12, printerName: '',
+  merchant: '', address: '', phone: '', taxNumber: '',
+  receiptPrefix: '', logoDataUrl: '', drawerKick: false, drawerReasons: [], footer: '',
 };
 export const printerStorageKey = 'mizan-printer-v1';
 export function normalizePrinterSettings(value: unknown): PrinterSettings {
@@ -107,7 +107,7 @@ export function buildPrintDocument(receipt: PrintReceipt, settings: PrinterSetti
     .thermal-paper header,.thermal-paper footer{text-align:center;margin:8px 0} .store-logo{display:block;max-width:36mm;max-height:18mm;object-fit:contain;margin:0 auto 5px}.thermal-paper h1{font-size:1.3em;margin:0} .thermal-paper h2{font-size:1.1em;margin:6px 0} .thermal-paper p{margin:4px 0} .thermal-paper table{border-collapse:collapse;width:100%;table-layout:fixed}
     .thermal-paper th,.thermal-paper td{text-align:start;padding:5px 1px;border-bottom:1px dashed #555;vertical-align:top} .thermal-paper th:nth-child(2){width:17%;white-space:nowrap} .thermal-paper th:last-child{width:33%} .thermal-paper td:last-child{text-align:end} .thermal-paper tr{break-inside:avoid}
     .print-total{display:flex;justify-content:space-between;gap:6px;padding:4px 0;break-inside:avoid}.print-total span:last-child{flex-shrink:0}.thermal-paper footer{border-top:1px dashed #555;padding-top:6px}.thermal-paper small{font-size:.8em}
-    @media print{html,body{width:${s.width}mm!important}.print-controls{display:none!important}.thermal-paper{width:${s.width}mm;margin:0 auto;max-width:none;box-shadow:none} }
+    @media print{html,body{width:${s.width}mm!important}.print-controls{display:none!important}.thermal-paper{width:calc(${s.width}mm - 6mm);margin:0 3mm;max-width:none;box-shadow:none} }
   </style></head><body>
   <nav class="print-controls" aria-label="أدوات الطباعة"><button id="print-now" type="button">طباعة / حفظ PDF</button>
     <details><summary>إعداد الطباعة</summary><p>اختر ${s.printerName ? `الطابعة «${e(s.printerName)}»` : 'الطابعة الحرارية'} من نافذة الطباعة. اضبط الورق على ${s.width} مم، والمقياس على 100%، والهوامش على «بلا»، وأوقف رؤوس الصفحات وتذييلاتها. عدد النسخ من نافذة الطباعة.</p></details>

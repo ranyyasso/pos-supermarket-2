@@ -34,7 +34,7 @@ describe('thermal printing', () => {
     expect(html).toContain(`width:${width}mm`);
     expect(html).toContain(`padding-bottom:${printerDefaults.margin + printerDefaults.feed}mm`);
     expect(html).toContain(`@page { size: ${width}mm auto; margin: 0; }`);
-    expect(html).toContain(`.thermal-paper{width:${width}mm;margin:0 auto;max-width:none;box-shadow:none}`);
+    expect(html).toContain(`.thermal-paper{width:calc(${width}mm - 6mm);margin:0 3mm;max-width:none;box-shadow:none}`);
     expect(html).toContain('.print-controls{display:none!important}');
     expect(html).toContain('await document.fonts.ready');
     expect(html).toContain('لم يُرسل الإيصال إلى الطابعة');

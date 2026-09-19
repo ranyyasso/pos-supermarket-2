@@ -1,13 +1,14 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
-import { DemoErrorBoundary } from './DemoErrorBoundary';
+import { AppErrorBoundary } from './DemoErrorBoundary';
 import "@fontsource/ibm-plex-sans-arabic/400.css";
 import "@fontsource/ibm-plex-sans-arabic/500.css";
 import "@fontsource/ibm-plex-sans-arabic/600.css";
 import "@fontsource/ibm-plex-sans-arabic/700.css";
 import "./styles.css";
 import { loadPrinterSettings } from "./printing";
+import { AuthGate } from './AuthGate';
 
 // Remove obsolete browser-only records. Supabase is the operational data source.
 for (const key of [
@@ -25,6 +26,6 @@ document.documentElement.dataset.theme = loadPrinterSettings().theme;
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <DemoErrorBoundary><App /></DemoErrorBoundary>
+    <AppErrorBoundary><AuthGate><App /></AuthGate></AppErrorBoundary>
   </React.StrictMode>,
 );

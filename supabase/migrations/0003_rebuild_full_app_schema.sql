@@ -1,5 +1,9 @@
 -- Manual copy/paste migration. Do not auto-run. Replaces the product-only prototype.
 begin;
+drop function if exists public.guard_refund_quantity() cascade;
+drop function if exists public.touch_updated_at() cascade;
+drop function if exists public.claim_app_ownership() cascade;
+drop function if exists public.is_app_owner() cascade;
 drop table if exists public.refund_items,public.refunds,public.sale_items,public.sales,public.suspended_sale_items,public.suspended_sales,public.barcode_products,public.manual_products,public.categories,public.app_settings,public.app_owner cascade;
 drop sequence if exists public.receipt_number_seq;
 

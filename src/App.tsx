@@ -8,7 +8,7 @@ import { loadFavorites, saveFavorites } from './favorites';
 import { CategorySettings } from './CategorySettings';
 import { OfferSettings } from './OfferSettings';
 import { loadSalesSettings } from './salesSettings';
-import { deleteCloudProduct, loadCloudProducts, saveCloudFavorite, saveCloudProduct, saveCloudStock, supabaseConfigured } from './supabase';
+import { deleteCloudProduct, loadCloudCategories, loadCloudProducts, saveCloudFavorite, saveCloudProduct, saveCloudStock, supabaseConfigured } from './supabase';
 import { categoryColor, categoryPalette } from "./categoryColors";
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import ReactPaginate from "react-paginate";
@@ -268,8 +268,9 @@ export function App() {
   useEffect(() => {
     if (!supabaseConfigured) return;
     let active = true;
-    loadCloudProducts().then(result => {
+    Promise.all([loadCloudCategories(),loadCloudProducts()]).then(([cloudCategories,result]) => {
       if (!active) return;
+      categories.splice(1,categories.length-1,...cloudCategories.map(row=>({id:row.id,name:row.name,tone:'neutral' as const})));
       const internal = products.filter(product => product.untracked);
       products.splice(0, products.length, ...result.products, ...internal);
       setFavorites(result.favorites);
