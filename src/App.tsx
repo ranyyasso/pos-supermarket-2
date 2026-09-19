@@ -56,7 +56,7 @@ import {
   price,
   uid,
   reducer,
-  loadState,
+  seed,
   couponError,
   discountConflict,
   cashPayment,
@@ -261,7 +261,7 @@ export function App() {
   const [confirmation,setConfirmation]=useState<{title:string;reason:boolean;run:(reason:string)=>void}|null>(null);
   const confirmationReturn = useRef<Modal>(null);
   function ask(title:string,run:(reason:string)=>void,reason=false){confirmationReturn.current=modal;setConfirmation({title,run,reason});open('confirm');}
-  const [state, dispatch] = useReducer(reducer, undefined, loadState),
+  const [state, dispatch] = useReducer(reducer, undefined, seed),
     [category, setCategory] = useState("all"),
     [search, setSearch] = useState(""),
     [modal, setModalState] = useState<Modal>(null);
@@ -273,7 +273,6 @@ export function App() {
       const internal = products.filter(product => product.untracked);
       products.splice(0, products.length, ...result.products, ...internal);
       setFavorites(result.favorites);
-      saveFavorites(result.favorites);
       setCatalogVersion(version => version + 1);
     }).catch(() => {
       if (active) setStorageWarning('تعذر الاتصال بـ Supabase. تحقق من تنفيذ ملفات الترحيل وسياسات الوصول.');
@@ -354,14 +353,6 @@ export function App() {
     paid = payments.reduce((a, p) => a + p.amount, 0),
     remaining = Math.max(0, totals.total - paid),
     selectedLine = current.lines.find((l) => l.id === selected);
-  useEffect(() => {
-    if(getRecoveryNotice())setStorageWarning(getRecoveryNotice());
-    try {
-      localStorage.setItem("mizan-pos-v1", JSON.stringify(state));
-    } catch {
-      setStorageWarning("تعذر حفظ البيانات محلياً؛ أبقِ الصفحة مفتوحة ولا تعِد تحميلها حتى تنتهي التجربة.");
-    }
-  }, [state]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -1613,14 +1604,14 @@ export function App() {
                     approve("عكس الدفعات الجزئية وإلغاء الدفع", () => {
                       dispatch({
                         type: "audit",
-                        action: "عكس دفعات تجريبية",
+                        action: "عكس دفعات",
                         reason: payments
                           .map((p) => `${methods[p.method]}: ${p.amount}`)
                           .join(" / "),
                       });
                       setPayments([]);
                       setModal(null);
-                      announce("تم عكس الدفعات التجريبية. السلة محفوظة.");
+                      announce("تم عكس الدفعات. السلة محفوظة.");
                     })
                   }
                 >

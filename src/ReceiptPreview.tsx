@@ -63,7 +63,6 @@ export function ReceiptPreview({ transaction, settings = printerDefaults }: { tr
       </div>
       <footer>
         {transaction.status === "void" ? "معاملة ملغاة" : settings.footer}
-        <small>إيصال تجريبي · غير صالح للاستخدام المالي</small>
       </footer>
     </section>
   );

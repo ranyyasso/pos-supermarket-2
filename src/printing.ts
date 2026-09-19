@@ -116,7 +116,7 @@ export function buildPrintDocument(receipt: PrintReceipt, settings: PrinterSetti
   <main class="thermal-paper"><header>${s.logoDataUrl ? `<img class="store-logo" src="${e(s.logoDataUrl)}" alt="">` : ''}<h1>${e(s.merchant)}</h1><p>${e(s.address)}</p>${s.phone ? `<p>الهاتف: ${e(s.phone)}</p>` : ''}${s.taxNumber ? `<p>الرقم الضريبي: ${e(s.taxNumber)}</p>` : ''}<h2>${e(receipt.title)}</h2>${receipt.details.map(d => `<p>${e(d)}</p>`).join('')}</header>
   <table><thead><tr><th>الصنف</th><th>العدد</th><th>المبلغ</th></tr></thead><tbody>${receipt.rows.map(r => `<tr><td>${e(r.name)}</td><td>${e(String(r.quantity))}</td><td>${r.amount === undefined ? '—' : e(money(r.amount))}</td></tr>`).join('')}</tbody></table>
   ${receipt.totals.map(t => `<div class="print-total"><span>${e(t.label)}</span><span>${e(money(t.amount))}</span></div>`).join('')}
-  <footer><p>${e(s.footer)}</p><small>إيصال تجريبي · غير صالح للاستخدام المالي</small></footer></main>
+  <footer><p>${e(s.footer)}</p></footer></main>
   <script>const status=document.getElementById('print-status');window.addEventListener('beforeprint',()=>{status.textContent='فُتحت نافذة الطباعة. اختر الطابعة الحرارية وتحقق من عرض الورق.'});window.addEventListener('afterprint',()=>{status.textContent='أُغلقت نافذة الطباعة. لا يستطيع المتصفح معرفة هل خرج الورق أم أُلغيت العملية.'});document.getElementById('print-now').onclick=async function(){this.disabled=true;try{await document.fonts.ready;status.textContent='جارٍ فتح نافذة الطباعة؛ المتصفح لا يؤكد خروج الورق.';parent.postMessage({type:'mizan-print-request'},'*');window.print();}catch(e){status.textContent='تعذر فتح نافذة الطباعة. افتح التطبيق في Chrome أو Edge وحاول مجدداً.';}finally{this.disabled=false;}};</script>
   </body></html>`;
 }
