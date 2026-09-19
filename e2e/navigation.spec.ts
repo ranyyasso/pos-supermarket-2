@@ -40,28 +40,8 @@ test('product search survives child form cancellation and dirty edits require a 
   await expect(page.getByRole('status')).toContainText('لا توجد أصناف مطابقة');
 });
 
-test('printer draft survives cancelled navigation and saved settings persist',async({page})=>{
-  await button(page,'الإعدادات').click();
-  await page.getByRole('tab',{name:'المتجر',exact:true}).click();
-  const merchant=page.getByRole('textbox',{name:'اسم المتجر',exact:true});
-  await merchant.fill('متجر المسودة');
-  await button(page,'العودة إلى شاشة البيع').click();
-  await button(page,'العودة إلى التحرير').click();
-  await expect(merchant).toHaveValue('متجر المسودة');
-  await button(page,'حفظ الإعدادات').click();
-  await button(page,'العودة إلى شاشة البيع').click();
-  await button(page,'الإعدادات والإدارة').click();await button(page,'التقارير').click();
-  await expect(page.getByRole('heading',{name:'التقارير',exact:true})).toBeVisible();
-  await expect(button(page,'رجوع')).toHaveCount(0);
-  await button(page,'العودة إلى شاشة البيع').click();await button(page,'الإعدادات').click();
-  await page.getByRole('tab',{name:'المتجر',exact:true}).click();
-  await expect(merchant).toHaveValue('متجر المسودة');
-  await merchant.fill('لا تحفظ هذا');
-  await button(page,'العودة إلى شاشة البيع').click();
-  await button(page,'لا').click();
-  await button(page,'الإعدادات').click();
-  await page.getByRole('tab',{name:'المتجر',exact:true}).click();
-  await expect(merchant).toHaveValue('متجر المسودة');
+test('settings autosave survives navigation to management',async({page})=>{
+ await button(page,'الإعدادات').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();const merchant=page.getByRole('textbox',{name:'اسم المتجر',exact:true});await merchant.fill('متجر المسودة');await button(page,'العودة إلى شاشة البيع').click();await button(page,'الإعدادات والإدارة').click();await button(page,'التقارير').click();await expect(page.getByRole('heading',{name:'التقارير',exact:true})).toBeVisible();await button(page,'العودة إلى شاشة البيع').click();await button(page,'الإعدادات').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();await expect(merchant).toHaveValue('متجر المسودة');
 });
 
 test('inventory opens receiving directly without view buttons and protects its draft',async({page})=>{
@@ -94,12 +74,12 @@ test('management and grouped settings fit narrow touch panes',async({page})=>{
   for(const viewport of [{width:683,height:512},{width:390,height:844}]){
     await page.setViewportSize(viewport);
     await button(page,'الإعدادات').click();
-    await expect(page.getByRole('group',{name:'الطابعة ودرج النقد',exact:true})).toBeVisible();
+    await expect(page.getByRole('group',{name:'الطابعة',exact:true})).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     const body=page.locator('.dialog-body');
     expect(await body.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
-    await button(page,'حفظ الإعدادات').scrollIntoViewIfNeeded();
-    await expect(button(page,'حفظ الإعدادات')).toBeInViewport();
+    await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await button(page,'معاينة اختبار').scrollIntoViewIfNeeded();
+    await expect(button(page,'معاينة اختبار')).toBeInViewport();
     await page.screenshot({path:`qa/navigation-settings-${viewport.width}.png`});
     await button(page,'العودة إلى شاشة البيع').click();
   }

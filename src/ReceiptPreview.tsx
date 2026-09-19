@@ -1,3 +1,4 @@
+import { lineName, lineQuantityText } from './model';
 import { dateTime, money, legacyPrice, productById, type Transaction } from "./model";
 import { printerDefaults, receiptNumber, type PrinterSettings } from './printing';
 export function ReceiptPreview({ transaction, settings = printerDefaults }: { transaction: Transaction; settings?: PrinterSettings }) {
@@ -26,8 +27,8 @@ export function ReceiptPreview({ transaction, settings = printerDefaults }: { tr
         <tbody>
           {transaction.sale.lines.map((l) => (
             <tr key={l.id}>
-              <td>{productById(l.productId).name}</td>
-              <td>{l.scaleWeight ? `${l.scaleWeight} كغ` : l.quantity}</td>
+              <td>{lineName(l)}</td>
+              <td>{lineQuantityText(l)}</td>
               <td>{money(totals.rows.find((r) => r.id === l.id)!.net)}</td>
             </tr>
           ))}

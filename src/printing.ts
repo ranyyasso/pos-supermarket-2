@@ -1,7 +1,9 @@
+import { lineName, lineQuantityText } from './model';
 import { dateTime, money, legacyPrice, productById, ean13CheckDigit, type Transaction, type Refund } from './model';
 import JsBarcode from 'jsbarcode';
 
 export type PrinterSettings = {
+  theme: "dark" | "light";
   enabled: boolean;
   width: 58 | 80;
   margin: number;
@@ -16,9 +18,12 @@ export type PrinterSettings = {
   logoDataUrl: string;
   drawerKick: boolean;
   drawerReasons: string[];
+  refundReasons: string[];
   footer: string;
 };
 export const printerDefaults: PrinterSettings = {
+  theme: "dark",
+  refundReasons: ['صنف تالف', 'صنف غير مطابق', 'تراجع العميل عن الشراء'],
   enabled: true, width: 80, margin: 2, feed: 8, fontSize: 12, printerName: '',
   merchant: 'سوبرماركت الصغار', address: 'بغداد · الفرع الرئيسي', phone: '', taxNumber: '',
   receiptPrefix: '', logoDataUrl: '', drawerKick: true, drawerReasons: ['تبديل نقد', 'إيداع نقد', 'سحب نقد'], footer: 'شكراً لزيارتكم',
@@ -29,6 +34,7 @@ export function normalizePrinterSettings(value: unknown): PrinterSettings {
   const text = (key: 'printerName' | 'merchant' | 'address' | 'phone' | 'taxNumber' | 'receiptPrefix' | 'footer', max: number) =>
     typeof v[key] === 'string' ? v[key].trim().slice(0, max) : printerDefaults[key];
   return {
+    theme: v.theme === "light" ? "light" : "dark",
     enabled: typeof v.enabled === 'boolean' ? v.enabled : printerDefaults.enabled,
     width: v.width === 58 ? 58 : 80,
     margin: typeof v.margin === 'number' && Number.isFinite(v.margin) ? Math.max(0, Math.min(5, v.margin)) : 2,
@@ -41,6 +47,7 @@ export function normalizePrinterSettings(value: unknown): PrinterSettings {
     logoDataUrl: typeof v.logoDataUrl === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(v.logoDataUrl) && v.logoDataUrl.length <= 350000 ? v.logoDataUrl : '',
     drawerReasons: Array.isArray(v.drawerReasons) ? [...new Set(v.drawerReasons.filter((r): r is string => typeof r === 'string').map(r=>r.trim().slice(0,120)).filter(Boolean))].slice(0,50) : [...printerDefaults.drawerReasons],
     drawerKick: typeof v.drawerKick === 'boolean' ? v.drawerKick : printerDefaults.drawerKick,
+    refundReasons: Array.isArray(v.refundReasons) ? [...new Set(v.refundReasons.filter((r): r is string => typeof r === 'string').map(r=>r.trim().slice(0,120)).filter(Boolean))].slice(0,50) : [...printerDefaults.refundReasons],
     footer: text('footer', 140),
   };
 }
@@ -63,7 +70,7 @@ export function salePrintReceipt(tx: Transaction, settings: Pick<PrinterSettings
   return {
     title: `إيصال #${receiptNumber(tx.sale.id, settings)}`,
     details: [dateTime(tx.sale.createdAt), ...(tx.status === 'void' ? ['معاملة ملغاة'] : [])],
-    rows: tx.sale.lines.map(l => ({name: productById(l.productId).name, quantity: l.scaleWeight ? `${l.scaleWeight} كغ` : l.quantity, amount: p.rows.find(r => r.id === l.id)!.net})),
+    rows: tx.sale.lines.map(l => ({name: lineName(l), quantity: lineQuantityText(l), amount: p.rows.find(r => r.id === l.id)!.net})),
     totals: [
       {label: 'المجموع قبل الخصم', amount: p.subtotal + (p.wholesaleSaving || 0)},
       ...(p.savings?.length ? p.savings.map(saving => ({label:saving.reason,amount:-saving.amount})) : [{label: 'الخصومات والعروض', amount: p.itemDiscount + p.promotions + p.basketDiscount + p.reward}]),
@@ -77,7 +84,7 @@ export function refundPrintReceipt(refund: Refund, tx: Transaction): PrintReceip
   return {
     title: `إيصال استرجاع #${refund.transactionId}`,
     details: [refund.id, refund.reason],
-    rows: tx.sale.lines.filter(l => refund.lines[l.id] > 0).map(l => ({name: productById(l.productId).name, quantity: refund.lines[l.id]})),
+    rows: tx.sale.lines.filter(l => refund.lines[l.id] > 0).map(l => ({name: lineName(l), quantity: lineQuantityText(l, refund.lines[l.id])})),
     totals: [{label: 'المبلغ المسترجع', amount: refund.total},...refund.allocations.map(a=>({label:({cash:'نقداً',card:'بطاقة مصرفية',contactless:'دفع لاتلامسي'} as Record<string,string>)[a.method]||a.method,amount:a.amount}))],
   };
 }

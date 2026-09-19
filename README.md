@@ -1,81 +1,62 @@
 # ميزان — Arabic RTL touch POS
 
-A local, frontend-only restaurant POS prototype based on the supplied photograph. Fully mirrored Arabic layout, Iraqi dinar prices, pastel product tiles, dark basket, and touch controls. Built with React 19, TypeScript, Vite, Tailwind v4, Radix Dialog, Lucide, and self-hosted IBM Plex Sans Arabic.
+Frontend-only supermarket POS prototype built with React, TypeScript, Vite, and browser storage. The client demo runs in Docker and is available at `http://127.0.0.1:18173`.
 
-## Open the app
+## Run with Docker
 
-http://127.0.0.1:18173
-
-Docker Compose project: `mizan-pos`. Container: `mizan-pos-pos-1`. The port is bound only to localhost. Existing Docker services are not modified.
+From the repository root:
 
 ```powershell
-& "$env:LOCALAPPDATA/Programs/DockerDesktop/resources/bin/docker.exe" compose up -d --build
+docker compose up -d --build
 ```
 
-Run from this `pos` folder. The Docker build runs TypeScript checks and unit tests before producing the nginx image. Data lives in the browser's localStorage, not in Docker, so restarting the container preserves the same browser's data. Different browsers have independent demo data.
+The Compose project is `mizan-pos`. The web server is bound to localhost only. Application data is saved in each browser's `localStorage`, so rebuilding or restarting the container does not remove that browser's data.
 
-## Implemented sections
+## Development and verification
 
-1. **Catalog:** Arabic categories, product search, keyboard-wedge barcode scans, manual barcode entry, independent price checking, restriction badges.
-2. **Basket:** add, increase/decrease, direct quantity editor and touch keypad, removal confirmation, notes, undo, takeaway/dine-in.
-3. **Pricing:** integer IQD, item and basket percentage/fixed discounts, configurable product tax rates, automatic cola pair promotion, WELCOME10 and DESSERT5 coupons, itemized totals.
-4. **Customers:** name/mobile/loyalty-card lookup, new customers, attachment/removal, points display, reward redemption, manager-approved points adjustments.
-5. **Age verification:** accept, refuse, manager override, and audit events for restricted products.
-6. **Payments:** cash tender and change; card/contactless approval, decline, timeout, cancellation simulations; split payments; partial-payment reload recovery; manager-approved reversal of simulated partial payments.
-7. **Sale management:** park with note, searchable recall, cancellation with reason, manager-approved voids creating reversal records.
-8. **Returns:** receipt lookup, quantity limits, proportional original-price refunds, original-method allocation, manager-approved cash override, refund receipts and repeat-refund protection.
-9. **Receipts:** Arabic thermal print preview for sales and refunds, browser printing through Windows drivers, email/SMS simulations, no-receipt choice, email and Iraqi mobile validation, history reprint.
-10. **Manager/drawer:** reusable PIN approval, three-attempt/30-second lock, reason for manual drawer opening, automatic cash drawer simulation, audit history and demo reset.
-
-## Demo credentials and data
-
-- Manager PIN: `2468` (demonstration only, not authentication).
-- Mozzarella barcode: `100001`; cola barcode: `100010`.
-- Customer loyalty card: `200001` (fictional Ahmad), `200002` (fictional Noor).
-- `WELCOME10`: 10% eligible basket discount.
-- `DESSERT5`: 5,000 IQD discount when dessert gross subtotal reaches 20,000 IQD.
-- `COLA2`: automatic buy-two cola promotion; no coupon entry required.
-- `EXPIRED`: demonstrates expired-coupon validation.
-- Example mobile: `07701234567`.
-- Default 10% tax and age 18 are editable demo catalog settings, not tax/legal rules.
-
-## Code map
-
-- `src/model.ts`: catalog, types, pricing/refund functions, persisted state and reducer.
-- `src/App.tsx`: RTL shell, touch flows and dialog orchestration.
-- `src/ReceiptPreview.tsx`: receipt view, using the same pricing calculation as checkout.
-- `src/styles.css`: Tailwind v4 theme tokens, component styles and desktop/touch breakpoints.
-- `src/model.test.ts`: financial/state invariant tests.
-- `design-qa.md`: browser evidence and visual QA results.
-
-The requested `tailwind-design-system` skill was installed from `wshobson/agents` and applied through CSS-first `@theme` tokens, reusable button variants/states, logical RTL spacing, and responsive grids.
-
-## Verification
-
-The client-demo audit passed 39 unit/regression tests, 36 browser scenarios repeated twice (72 passing runs), TypeScript, the production build and four packaging checks. See `CLIENT-DEMO-CHECKLIST.md` for coverage, fixes and the demo walkthrough.
-
-```sh
+```powershell
 npm ci
 npm run typecheck
 npm test
 npm run build
 ```
 
-Browser checks use isolated Chromium profiles. The app was visually checked at 1280×720, 1366×768, and 1920×1080. Basket and category regions scroll independently; payment controls stay fixed.
+Run the isolated browser regression suite with:
 
-The Playwright suites are in `e2e/`. With Docker running, install Chromium (`npx playwright install chromium`) and run `npm run test:e2e`. Current screenshots and 58/80 mm print-test PDFs are in `qa/`.
+```powershell
+npm run test:e2e
+```
+
+The Docker image runs type-checking, unit tests, and the production build before creating the nginx runtime image.
+
+## Project structure
+
+- `src/` — application UI, browser-state model, printing, reports, and unit tests.
+- `e2e/` — Playwright browser regression tests.
+- `Dockerfile` and `compose.yaml` — local client-demo hosting.
+- `worker/`, `tests/sites-worker.test.mjs`, and `scripts/prepare-sites-build.mjs` — retained packaging support for a future Sites handoff.
 
 ## Prototype boundaries
 
-Payments, email/SMS and cash drawer commands are simulations. Thermal printing uses the browser print dialog and a Windows-installed printer driver; it does not confirm physical output. There is no backend, payment provider, inventory service, production authentication, fiscalization or shared database. A keyboard-wedge scanner is supported, but no physical scanner or other POS hardware was available for verification. Clearing browser storage deletes that browser's demo data; the manager menu can restore the initial sample basket.
+This is currently a UI prototype with no connected backend. Payments and cash-drawer operations are explicitly simulated. Products created in the UI are saved in browser storage until the Supabase client integration is implemented.
 
-## Thermal printer setup
+Receipt printing uses the browser's print dialog and a Windows-installed printer driver. A browser print request cannot confirm that physical output succeeded. See `THERMAL-PRINTING.md` for the short deployment checklist.
 
-1. Install the printer's Windows driver and verify a Windows test page. USB and network printers work through that driver; Docker does not need direct USB access.
-2. Open the cashier menu, then **إعدادات الطابعة الحرارية**. Choose 58 or 80 mm paper, inner margins, font size, store name, address and footer. Save the settings in this browser.
-3. Choose **معاينة وطباعة اختبار**, then **طباعة / حفظ PDF** inside the receipt preview. Select your thermal printer, matching roll size, scale 100%, no browser margins, and no browser headers/footers. Set copies and cutter options in the printer driver if supported.
-4. After checkout, use **معاينة وطباعة الإيصال**. Reprinting from history and refund receipts use the same settings. Opening a preview does not mean a print job succeeded.
+## Supabase Cloud preparation
 
-The embedded preview avoids pop-ups and renders Arabic using the browser. Use Chrome or Edge if the Codex in-app browser does not show its native print dialog. Continuous roll length and pagination depend on the driver; CSS uses the driver's paper size and constrains receipt content to the selected width. Physical printing still needs testing on your exact printer. There is no silent printing, direct ESC/POS, IP/port connection or printer discovery.
+Numbered SQL files live in `supabase/migrations/`. They are copy-paste artifacts only. Do not run migrations, commit, or push them from this workspace. Tell the project owner that a migration file is ready so they can copy and paste it into the Supabase SQL Editor.
 
-`src/printing.ts` contains settings validation and safe receipt HTML generation; `src/PrinterSettings.tsx` contains the settings UI. The `no-ai-slop` wording review is recorded in `copy-review.md`.
+To connect the app to Supabase Cloud later, the following are required:
+
+1. A Supabase project URL and publishable/anonymous key.
+2. Local environment variables named `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Never put a service-role key in this browser app.
+3. The `@supabase/supabase-js` client dependency and a single client module that reads those variables.
+4. Supabase Auth and Row Level Security policies for cashier/admin access. Migration `0001` enables RLS but deliberately grants no browser access.
+5. Product read/create/update functions that replace the current browser-storage product functions, with loading, validation, offline/error handling, and duplicate-barcode handling.
+6. A one-time import path only if existing user-created browser products must be preserved.
+
+The first schema file is `supabase/migrations/0001_create_product_tables.sql`. It contains no sample rows.
+
+For the Cloudflare deployment, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the Cloudflare project's build environment for both Production and Preview, then trigger a new build from GitHub. These values are compiled into the browser bundle; the publishable key is intended for frontend use, while the database password and service-role key must never be added there.
+
+Until Supabase Auth is added, `supabase/migrations/0002_anonymous_product_access.sql` grants temporary anonymous CRUD access only to the two product tables. Replace those policies when cashier/admin authentication is implemented.

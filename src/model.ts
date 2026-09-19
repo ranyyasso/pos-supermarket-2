@@ -7,6 +7,7 @@ export type Product = {
   category: string;
   price: number;
   barcode: string;
+  entryMode?: "manual" | "barcode";
   tone: Tone;
   age?: number;
   available?: boolean;
@@ -21,6 +22,12 @@ export type Product = {
   unit?: "piece" | "kg" | "g" | "l" | "ml";
   expiry?: string;
   scaleCode?: string;
+  packSize?: number;
+  packPrice?: number;
+  packBarcode?: string;
+  wholesalePrice?: number;
+  wholesaleMinimum?: number;
+  untracked?: boolean;
 };
 export type Discount = { kind: "percent" | "fixed"; value: number };
 export type Line = {
@@ -30,8 +37,13 @@ export type Line = {
   discount?: Discount;
   note?: string;
   verified?: boolean;
+  wholesale?: boolean;
   priceOverride?: number;
   scaleWeight?: number;
+  saleUnit?: Product["unit"] | "pack";
+  packSize?: number;
+  packPrice?: number;
+  manualName?: string;
 };
 export type Customer = {
   id: string;
@@ -116,10 +128,14 @@ export const categories: { id: string; name: string; tone: Tone }[] = [
   { id: "wine", name: "القرطاسية", tone: "red" },
   { id: "hot", name: "العناية اليومية", tone: "sand" },
 ];
+export const categoryNameMaxLength = 24;
+export const maxCategories = 13;
 export const categoryStorageKey = 'mizan-categories-v1';
 export function hydrateCategories() {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(categoryStorageKey) || '[]');
+    const removed=JSON.parse(localStorage.getItem('mizan-removed-categories-v1') || '[]');
+    if(Array.isArray(removed)) for(let i=categories.length-1;i>=0;i--) if(categories[i].id!=='all' && removed.includes(categories[i].id)) categories.splice(i,1);
     if (!Array.isArray(saved)) return;
     for (const value of saved) {
       if (value && typeof value.id === 'string' && /^category-[a-z0-9-]+$/.test(value.id) && typeof value.name === 'string' && value.name.trim() && value.name.length <= 80 && !categories.some(c => c.id === value.id || c.name === value.name.trim())) categories.push({id:value.id,name:value.name.trim(),tone:'neutral'});
@@ -127,64 +143,62 @@ export function hydrateCategories() {
   } catch { /* Keep the built-in categories available if saved data cannot be read. */ }
 }
 export function registerCategory(name: string) {
+  if(categories.filter(c=>c.id!=='all').length>=maxCategories) throw new Error('الحد الأقصى 13 فئة، بالإضافة إلى المفضلة');
   const label = normalizeDigits(name).trim();
-  if (!label || label.length > 80) throw new Error('أدخل اسم فئة من 1 إلى 80 حرفاً');
+  if (!label || label.length > categoryNameMaxLength) throw new Error('أدخل اسم فئة من 1 إلى 24 حرفاً');
   if (categories.some(c => c.name === label)) throw new Error('الفئة مسجلة مسبقاً');
   const category = {id:`category-${crypto.randomUUID()}`,name:label,tone:'neutral' as Tone};
   localStorage.setItem(categoryStorageKey,JSON.stringify([...categories.filter(c=>c.id.startsWith('category-')),category]));
   categories.push(category);
   return category;
 }
+export function removeCategory(id: string) {
+  const index=categories.findIndex(c=>c.id===id);
+  if(index<0 || id==='all') throw new Error('لا يمكن حذف هذه الفئة');
+  if(products.some(p=>p.category===id)) throw new Error('انقل أصناف هذه الفئة إلى فئة أخرى قبل حذفها');
+  if(id.startsWith('category-')) localStorage.setItem(categoryStorageKey,JSON.stringify(categories.filter(c=>c.id.startsWith('category-') && c.id!==id)));
+  else {const removed=JSON.parse(localStorage.getItem('mizan-removed-categories-v1') || '[]');localStorage.setItem('mizan-removed-categories-v1',JSON.stringify([...removed,id]));}
+  categories.splice(index,1);
+}
 hydrateCategories();
-const catalog: [string, string, number, Tone][] = [
-  ["بسكويت حليب · علبة", "starters", 8000, "pink"],
-  ["حبوب إفطار بالشوكولاتة", "pizza", 14000, "purple"],
-  ["كيك فانيلا · عبوة", "dessert", 7000, "cyan"],
-  ["رقائق بطاطس · عبوة عائلية", "starters", 10000, "pink"],
-  ["شوفان بالعسل · علبة", "pizza", 16000, "purple"],
-  ["بسكويت شوكولاتة", "dessert", 6000, "cyan"],
-  ["فشار بالجبن", "starters", 5000, "pink"],
-  ["زبدة فول سوداني", "pizza", 15000, "purple"],
-  ["ويفر بالفانيلا", "dessert", 6500, "cyan"],
-  ["عصير تفاح · 200 مل", "soda", 2000, "green"],
-  ["مناديل أطفال", "beer", 5000, "blue"],
-  ["شامبو أطفال", "beer", 4500, "blue"],
-  ["أقلام تلوين", "wine", 7000, "neutral"],
-  ["دفتر رسم", "wine", 7000, "red"],
-  ["حقيبة مدرسية", "wine", 30000, "red"],
-  ["حليب أطفال · عبوة", "burger", 10000, "blue"],
-  ["زبادي فراولة · عبوة", "burger", 8500, "blue"],
-  ["كراكرز بالجبن", "starters", 3500, "pink"],
-  ["معجون أسنان أطفال", "hot", 3000, "sand"],
-  ["فرشاة أسنان أطفال", "hot", 1500, "sand"],
-  ["مياه شرب · 330 مل", "soda", 2000, "green"],
-];
-export const products: Product[] = catalog.map(
-  ([name, category, price, tone], i) => ({
-    id: `p${i + 1}`,
-    name,
-    category,
-    price,
-    cost: Math.round(price * 0.7),
-    tone,
-    age: undefined,
-    barcode: `100${String(i + 1).padStart(3, "0")}`,
-    tax: 10,
-    stock: 24 + ((i * 17) % 73),
-    discountable: true,
-    available: true,
-  }),
-);
+export const products: Product[] = [];
+
+export const unitLabels = {piece:'قطعة',kg:'كغ',g:'غ',l:'لتر',ml:'مل',pack:'عبوة'};
+export const roundQuantity = (value:number) => Math.round(value*1000)/1000;
+export function validQuantity(value:unknown, unit: Product['unit'] | 'pack' = 'piece', min=0.001, max=999): value is number {
+ return typeof value==='number' && Number.isFinite(value) && value>=min && value<=max && (unit==='piece'||unit==='pack'||!unit ? Number.isInteger(value) : Math.abs(value-roundQuantity(value))<1e-9);
+}
+export function lineUnit(line:Line) {return line.saleUnit || (line.scaleWeight ? 'kg' : 'piece');}
+export function lineStockQuantity(line:Line) {return roundQuantity(line.scaleWeight ?? line.quantity*(line.saleUnit==='pack' ? line.packSize! : 1));}
+export function lineQuantityText(line:Line, quantity=line.quantity) {
+ if(lineUnit(line)==='piece' && !line.scaleWeight) return quantity;
+ if(line.scaleWeight) return roundQuantity(line.scaleWeight*quantity/line.quantity)+" "+unitLabels[lineUnit(line)];
+ return quantity+" "+unitLabels[lineUnit(line)]+(line.saleUnit==="pack" ? " × "+line.packSize+" قطعة" : "");
+}
+function validSellingOptions(v: Record<string,unknown>) {
+ const pack = v.packSize!==undefined || v.packPrice!==undefined || v.packBarcode!==undefined;
+ const wholesale = v.wholesalePrice!==undefined || v.wholesaleMinimum!==undefined;
+ return (!pack || ((!v.unit || v.unit==='piece') && Number.isInteger(v.packSize) && Number(v.packSize)>=2 && Number(v.packSize)<=999 && Number.isSafeInteger(v.packPrice) && Number(v.packPrice)>0 && Number(v.packPrice)<=Number(v.price)*Number(v.packSize) && (v.packBarcode===undefined || typeof v.packBarcode==='string' && /^\d{4,32}$/.test(v.packBarcode) && v.packBarcode!==v.barcode))) &&
+ (!wholesale || Number.isSafeInteger(v.wholesalePrice) && Number(v.wholesalePrice)>0 && Number(v.wholesalePrice)<Number(v.price) && validQuantity(v.wholesaleMinimum, v.unit as Product['unit']));
+}
+export function sellingOptionsError(product:Product) {
+ if(!validSellingOptions(product as unknown as Record<string,unknown>)) return 'تحقق من حجم العبوة وسعرها وحد الجملة وسعر الوحدة؛ يجب أن يكون سعر الجملة أقل من المفرد';
+ const codes=[product.barcode,product.packBarcode].filter(Boolean);
+ if(new Set(codes).size!==codes.length || products.some(p=>p.id!==product.id && codes.some(code=>p.barcode===code||p.packBarcode===code))) return 'الباركود مسجل مسبقاً لصنف أو عبوة';
+}
+
 const builtInProductIds = new Set(products.map(p => p.id));
+export const manualItemProductId = "manual-item";
+products.push({id:manualItemProductId,name:"صنف يدوي",category:"all",price:0,barcode:"",entryMode:"manual",tone:"neutral",tax:0,stock:Number.MAX_SAFE_INTEGER,discountable:true,available:true,untracked:true});
 export const registeredProductsKey = 'mizan-products-v1';
 const validRegisteredProduct = (p: unknown): p is Product => {
   if (!p || typeof p !== 'object') return false;
   const v = p as Record<string, unknown>;
-  return typeof v.id === 'string' && (v.custom === true && v.id.startsWith('custom-') || v.edited === true && builtInProductIds.has(v.id)) &&
-    typeof v.name === 'string' && !!v.name.trim() && typeof v.barcode === 'string' && /^\d{4,32}$/.test(v.barcode) &&
+  return typeof v.id === 'string' && (v.custom === true || v.edited === true && builtInProductIds.has(v.id)) &&
+    typeof v.name === 'string' && !!v.name.trim() && typeof v.barcode === 'string' && (v.entryMode === 'manual' && v.barcode === '' || /^\d{4,32}$/.test(v.barcode)) &&
     typeof v.category === 'string' && categories.some(c => c.id === v.category && c.id !== 'all') &&
     typeof v.price === 'number' && Number.isSafeInteger(v.price) && v.price >= 0 &&
-    typeof v.stock === 'number' && Number.isSafeInteger(v.stock) && v.stock >= 0 &&
+    validQuantity(v.stock, v.unit as Product['unit'], 0, 999999) && validSellingOptions(v) &&
     typeof v.tax === 'number' && Number.isFinite(v.tax) && v.tax >= 0 && v.tax <= 100 &&
     (v.cost === undefined || typeof v.cost === 'number' && Number.isSafeInteger(v.cost) && v.cost >= 0) &&
     (v.minStock === undefined || typeof v.minStock === 'number' && Number.isSafeInteger(v.minStock) && v.minStock >= 0) &&
@@ -200,9 +214,9 @@ export function hydrateRegisteredProducts(): number {
     if (!Array.isArray(saved)) return 0;
     const valid = saved.filter(validRegisteredProduct);
     for (const product of valid) {
-      if (products.some(p => p.id !== product.id && (p.barcode === product.barcode || product.scaleCode && p.scaleCode === product.scaleCode))) continue;
+      if(sellingOptionsError(product) || products.some(p=>p.id!==product.id && product.scaleCode && p.scaleCode===product.scaleCode)) continue;
       const index = products.findIndex(p => p.id === product.id);
-      if (index >= 0 && builtInProductIds.has(product.id)) products[index] = product;
+      if (index >= 0 && (builtInProductIds.has(product.id) || product.custom)) products[index] = product;
       else if (index < 0) products.push(product);
     }
     return valid.length;
@@ -210,7 +224,7 @@ export function hydrateRegisteredProducts(): number {
 }
 export function registerProduct(product: Product): Product {
   if (!validRegisteredProduct(product)) throw new Error('بيانات الصنف غير صالحة');
-  if (products.some(p => p.barcode === product.barcode)) throw new Error('الباركود مسجل لصنف آخر');
+  const sellingError=sellingOptionsError(product); if(sellingError) throw new Error(sellingError);
   if (product.scaleCode && products.some(p=>p.scaleCode===product.scaleCode)) throw new Error('رمز الميزان مسجل لصنف آخر');
   if (typeof localStorage === 'undefined') throw new Error('التخزين المحلي غير متاح');
   const saved = products.filter(p => p.custom || p.edited);
@@ -226,7 +240,7 @@ export function updateRegisteredProduct(product: Product): Product {
   if (!validRegisteredProduct(product)) throw new Error('بيانات الصنف غير صالحة');
   const index = products.findIndex(p => p.id === product.id);
   if (index < 0) throw new Error('لا يمكن تعديل هذا الصنف');
-  if (products.some(p => p.id !== product.id && p.barcode === product.barcode)) throw new Error('الباركود مسجل لصنف آخر');
+  const sellingError=sellingOptionsError(product); if(sellingError) throw new Error(sellingError);
   if (product.scaleCode && products.some(p=>p.id!==product.id&&p.scaleCode===product.scaleCode)) throw new Error('رمز الميزان مسجل لصنف آخر');
   const saved = products.filter(p => (p.custom || p.edited) && p.id !== product.id);
   const data = loadInventoryData(), costs = loadInventoryCosts();
@@ -283,13 +297,13 @@ export function inventoryMovements(): InventoryMovement[] { return loadInventory
 export function generateInternalBarcode(): string {
   for(let i=0;i<1000;i++) {
     const code='99'+String(Math.floor(Math.random()*1e10)).padStart(10,'0');
-    if(!products.some(p=>p.barcode===code)) return code;
+    if(!products.some(p=>p.barcode===code||p.packBarcode===code)) return code;
   }
   throw new Error('تعذر توليد باركود فريد؛ حاول مرة أخرى');
 }
 export function receiveInventory(productId:string, quantity:number, unitCost:number, supplier = '', reference = `RECV-${crypto.randomUUID()}`) {
   const product=productById(productId);
-  if(!product || !Number.isFinite(quantity) || quantity<=0 || quantity>999999 || !Number.isSafeInteger(unitCost) || unitCost<0 || !reference.trim()) throw new Error('أكمل كمية الاستلام وسعر القطعة');
+  if(!product || !validQuantity(quantity,product.unit,0.001,999999) || !Number.isSafeInteger(unitCost) || unitCost<0 || !reference.trim()) throw new Error('أكمل كمية الاستلام وسعر القطعة');
   const data=loadInventoryData();
   const movement:InventoryMovement={id:uid(),productId,delta:quantity,balance:Math.round((product.stock+quantity)*1000)/1000,type:'receive',reference:reference.trim(),supplier:supplier.trim() || undefined,unitCost,at:new Date().toISOString()};
   // Persist stock and the delivery cost together; failed writes must not change the catalog.
@@ -311,13 +325,16 @@ export function changeInventory(changes: {productId:string;quantity:number}[], t
   return created;
 }
 export const productById = (id: string) => products.find((p) => p.id === id)!;
+export const lineName = (line: Line) => line.manualName?.trim() || productById(line.productId).name;
 export function ean13CheckDigit(first12:string):number{if(!/^\d{12}$/.test(first12))return -1;const sum=[...first12].reduce((total,d,i)=>total+Number(d)*(i%2===0?1:3),0);return (10-sum%10)%10;}
-export function findBarcode(code:string): {product:Product;priceOverride?:number;scaleWeight?:number}|null {
-  const direct=products.find(p=>p.barcode===code);if(direct)return {product:direct};
+export function findBarcode(code:string): {product:Product;priceOverride?:number;scaleWeight?:number;saleUnit?:'pack'}|null {
+  const direct=products.find(p=>productEntryMode(p)==='barcode'&&p.barcode===code);if(direct)return {product:direct};
+  const pack=products.find(p=>productEntryMode(p)==='barcode'&&p.packBarcode===code); if(pack)return {product:pack,saleUnit:'pack'};
   if(!/^2\d{12}$/.test(code)||Number(code[1])>9||ean13CheckDigit(code.slice(0,12))!==Number(code[12]))return null;
-  const product=products.find(p=>p.scaleCode===code.slice(2,7));if(!product)return null;
+  const product=products.find(p=>productEntryMode(p)==='barcode'&&p.scaleCode===code.slice(2,7));if(!product || product.price<=0)return null;
   const priceOverride=Number(code.slice(7,12));if(priceOverride<=0)return null;
   const scaleWeight=Math.round((priceOverride/product.price)*1000)/1000;
+  if(scaleWeight<=0||scaleWeight>999)return null;
   return {product,priceOverride,scaleWeight};
 }
 export const uid = () => crypto.randomUUID();
@@ -348,19 +365,23 @@ export function price(sale: Sale, settings = loadSalesSettings()) { return calcu
 function calculatePrice(sale: Sale, settings: SalesSettings, legacy: boolean) {
   const legacyFactor = legacy && sale.service === 'dinein' ? 0.9 : 1;
   const quantityByProduct = new Map<string, number>();
-  for (const line of sale.lines) if (line.priceOverride === undefined) quantityByProduct.set(line.productId, (quantityByProduct.get(line.productId) || 0) + line.quantity);
-  const unitPrice = (product: Product) => {
-    const rule = settings.wholesale[product.id];
+  for (const line of sale.lines) if (line.priceOverride === undefined && line.saleUnit!=='pack') quantityByProduct.set(line.productId, roundQuantity((quantityByProduct.get(line.productId) || 0) + line.quantity));
+  const unitPrice = (product: Product, line?: Line) => {
+    const configured = product.wholesalePrice!==undefined && product.wholesaleMinimum!==undefined;
+    const rule = configured ? {price:product.wholesalePrice!,minimum:product.wholesaleMinimum!} : settings.wholesale[product.id];
+    if (!legacy && line?.wholesale === false) return product.price;
+    if (!legacy && line?.wholesale === true && rule && rule.price > 0 && rule.price < product.price) return rule.price;
+    if(!legacy && configured && !sale.coupon && !sale.discount && !sale.lines.some(l=>l.discount) && (quantityByProduct.get(product.id)||0)>=rule.minimum) return rule.price;
     return !legacy && settings.wholesaleEnabled && sale.service === 'dinein' && rule && (quantityByProduct.get(product.id) || 0) >= rule.minimum && rule.price < product.price ? rule.price : product.price;
   };
-  const wholesaleMode = !legacy && settings.wholesaleEnabled && sale.service === 'dinein';
+  const wholesaleMode = !legacy && ((settings.wholesaleEnabled && sale.service === 'dinein') || sale.lines.some(l=>l.saleUnit!=='pack' && l.priceOverride===undefined && unitPrice(productById(l.productId), l)<productById(l.productId).price));
   const manualAllowed = legacy || (!wholesaleMode && !sale.coupon);
   const automaticAllowed = legacy || (!wholesaleMode && !sale.coupon && !sale.discount && !sale.lines.some(l => l.discount));
   const demoOffers = legacy || settings.demoMode !== false;
   const rows = sale.lines.map((l) => {
     const p = productById(l.productId);
-    const gross = Math.round((l.priceOverride ?? unitPrice(p) * l.quantity) * legacyFactor);
-    const wholesaleSaving = legacy || l.priceOverride !== undefined ? 0 : (p.price - unitPrice(p)) * l.quantity;
+    const gross = Math.round((l.priceOverride ?? (l.saleUnit==='pack' ? l.packPrice! : unitPrice(p, l)) * l.quantity) * legacyFactor);
+    const wholesaleSaving = legacy || l.priceOverride !== undefined || l.saleUnit==='pack' ? 0 : Math.round((p.price - unitPrice(p, l)) * l.quantity);
     const itemDiscount = p.discountable && manualAllowed && (legacy || !sale.discount) ? cut(gross, l.discount) : 0;
     return {
       id: l.id,
@@ -378,9 +399,9 @@ function calculatePrice(sale: Sale, settings: SalesSettings, legacy: boolean) {
     };
   });
   // JUICE2 is an automatic buy-two promotion: every second juice is free.
-  let juicePromotion = automaticAllowed && demoOffers ? Math.floor(sale.lines.filter(l => l.productId === 'p10').reduce((sum,l) => sum+l.quantity,0)/2)*Math.round(unitPrice(productById('p10'))*legacyFactor) : 0;
+  let juicePromotion = automaticAllowed && demoOffers ? Math.floor(sale.lines.filter(l => l.productId === 'p10' && l.saleUnit!=='pack' && l.priceOverride===undefined).reduce((sum,l) => sum+l.quantity,0)/2)*Math.round(unitPrice(productById('p10'))*legacyFactor) : 0;
   for (const r of rows) {
-    if (sale.lines.find(l => l.id === r.id)!.productId !== 'p10') continue;
+    if (sale.lines.find(l => l.id === r.id)!.productId !== 'p10' || sale.lines.find(l=>l.id===r.id)!.saleUnit==='pack') continue;
     r.promo = Math.min(r.net, juicePromotion);
     r.net -= r.promo;
     juicePromotion -= r.promo;
@@ -394,7 +415,7 @@ function calculatePrice(sale: Sale, settings: SalesSettings, legacy: boolean) {
           sale.lines
             .filter((l) => productById(l.productId).category === "dessert")
             .reduce(
-              (s, l) => s + unitPrice(productById(l.productId)) * l.quantity * legacyFactor,
+              (s, l) => s + (l.saleUnit==='pack' ? l.packPrice! : unitPrice(productById(l.productId), l)) * l.quantity * legacyFactor,
               0,
             ) >= 20000
         ? 5000
@@ -465,7 +486,7 @@ function calculatePrice(sale: Sale, settings: SalesSettings, legacy: boolean) {
     taxable: sum("net"),
     tax: sum("tax"),
     total: sum("total"),
-    count: sale.lines.reduce((a, l) => a + l.quantity, 0),
+    count: roundQuantity(sale.lines.reduce((a, l) => a + l.quantity, 0)),
   };
 }
 export function discountConflict(sale: Sale, settings = loadSalesSettings()): string | undefined {
@@ -479,13 +500,13 @@ export function couponError(code: string, sale: Sale, settings = loadSalesSettin
   if (conflict) return conflict;
   const offer = (settings.offers || []).find(o => o.code === code && o.active);
   if (offer) {
-    const base = sale.lines.filter(l => productById(l.productId).discountable && (!offer.category || productById(l.productId).category === offer.category)).reduce((sum,l) => sum + (l.priceOverride ?? productById(l.productId).price*l.quantity),0);
+    const base = sale.lines.filter(l => productById(l.productId).discountable && (!offer.category || productById(l.productId).category === offer.category)).reduce((sum,l) => sum + (l.priceOverride ?? (l.saleUnit==='pack' ? l.packPrice! : productById(l.productId).price)*l.quantity),0);
     if (base <= 0 || base < offer.minimumSpend) return 'لم يتحقق الحد الأدنى أو لا توجد أصناف مؤهلة لهذا الكوبون';
     return;
   }
   if (settings.demoMode === false || !["WELCOME10", "DESSERT5", "JUICE2"].includes(code)) return code === "EXPIRED" ? "انتهت صلاحية هذا الكوبون" : "الكوبون غير صالح أو غير مفعّل";
   if (code === "JUICE2") return "عرض عصير 2 يُطبّق تلقائياً عند شراء عبوتين";
-  if (code === "DESSERT5" && sale.lines.filter(l => productById(l.productId).category === "dessert").reduce((sum,l) => sum + l.quantity*productById(l.productId).price,0) < 20000) return "يتطلب حلويات بقيمة 20,000 د.ع.";
+  if (code === "DESSERT5" && sale.lines.filter(l => productById(l.productId).category === "dessert").reduce((sum,l) => sum + l.quantity*(l.saleUnit==='pack' ? l.packPrice! : productById(l.productId).price),0) < 20000) return "يتطلب حلويات بقيمة 20,000 د.ع.";
   if (!sale.lines.some(l => productById(l.productId).discountable)) return "لا توجد أصناف مؤهلة";
 }
 export function cashPayment(
@@ -507,7 +528,7 @@ export function cashPayment(
 }
 export function refundValue(tx: Transaction, selected: Record<string, number>) {
   if (tx.status === "void") throw new Error("المعاملة ملغاة");
-  if(Object.entries(selected).some(([id,q]) => !tx.sale.lines.some(l=>l.id===id) || !Number.isSafeInteger(q) || q<0)) throw new Error('كمية الاسترجاع غير صالحة');
+  if(Object.entries(selected).some(([id,q]) => !tx.sale.lines.some(l=>l.id===id) || !validQuantity(q,lineUnit(tx.sale.lines.find(l=>l.id===id)!),0))) throw new Error('كمية الاسترجاع غير صالحة');
   const totals = tx.pricing || legacyPrice(tx.sale);
   // Older demo receipts lack a pricing snapshot. Preserve their recorded grand total.
   let cumulative=0;
@@ -515,7 +536,7 @@ export function refundValue(tx: Transaction, selected: Record<string, number>) {
   return tx.sale.lines.reduce((sum, l) => {
     const q = selected[l.id] || 0,
       done = tx.refunded[l.id] || 0;
-    if (!Number.isInteger(q) || q < 0 || q + done > l.quantity)
+    if (!validQuantity(q,lineUnit(l),0) || roundQuantity(q + done) > l.quantity)
       throw new Error("كمية الاسترجاع غير صالحة");
     const total = historical.get(l.id)!;
     return (
@@ -548,37 +569,20 @@ export function refundAllocations(
     .filter((a) => a.amount > 0);
 }
 export const seed = (): State => {
-  const sale = newSale(553);
-  sale.lines = ["p1", "p5", "p3", "p6", "p10", "p7"].map((productId) => ({
-    id: uid(),
-    productId,
-    quantity: 1,
-  }));
+  const testMode = import.meta.env.MODE === 'test';
+  const sale = newSale(testMode ? 553 : 1);
+  if (testMode) sale.lines = ["p1", "p5", "p3", "p6", "p10", "p7"].map(productId => ({id:uid(),productId,quantity:1}));
   return {
     sale,
     held: [],
     transactions: [],
     refunds: [],
-    customers: [
-      {
-        id: "c1",
-        name: "أحمد علي",
-        phone: "07701234567",
-        card: "200001",
-        points: 650,
-        tier: "ذهبي",
-      },
-      {
-        id: "c2",
-        name: "نور حسين",
-        phone: "07801234567",
-        card: "200002",
-        points: 120,
-        tier: "فضي",
-      },
-    ],
+    customers: testMode ? [
+      {id:"c1",name:"أحمد علي",phone:"07701234567",card:"200001",points:650,tier:"ذهبي"},
+      {id:"c2",name:"نور حسين",phone:"07801234567",card:"200002",points:120,tier:"فضي"},
+    ] : [],
     audit: [],
-    next: 554,
+    next: testMode ? 554 : 2,
   };
 };
 export type Action =
@@ -740,7 +744,7 @@ export function reducer(s: State, a: Action): State {
       try { total = refundValue(tx, a.selected); } catch { return s; }
       if (!Object.values(a.selected).some(q=>q>0) || !a.reason.trim()) return s;
       const prior = s.refunds.filter(r=>r.transactionId===a.id).reduce((sum,r)=>sum+r.total,0);
-      const full = tx.sale.lines.every(l=>(tx.refunded[l.id]||0)+(a.selected[l.id]||0)===l.quantity);
+      const full = tx.sale.lines.every(l=>roundQuantity((tx.refunded[l.id]||0)+(a.selected[l.id]||0))===l.quantity);
       return {
         ...s,
         customers: reverseLoyalty(s.customers, tx, prior, prior+total, full),
@@ -751,7 +755,7 @@ export function reducer(s: State, a: Action): State {
                 refunded: Object.fromEntries(
                   t.sale.lines.map((l) => [
                     l.id,
-                    (t.refunded[l.id] || 0) + (a.selected[l.id] || 0),
+                    roundQuantity((t.refunded[l.id] || 0) + (a.selected[l.id] || 0)),
                   ]),
                 ),
               }
@@ -786,7 +790,7 @@ const unique = (values: string[]) => new Set(values).size===values.length;
 function isDiscount(d: unknown) {return d===undefined || record(d) && (d.kind==='fixed' || d.kind==='percent') && typeof d.value==='number' && Number.isFinite(d.value) && d.value>0 && d.value <= (d.kind==='percent'?100:999999999);}
 export function isSale(v: unknown): v is Sale {
   if(!record(v) || !string(v.id) || !v.id || !Array.isArray(v.lines) || !Array.isArray(v.ageRecords)) return false;
-  return v.lines.every((l: unknown)=>record(l) && string(l.id) && !!l.id && products.some(p=>p.id===l.productId) && integer(l.quantity,1,999) && isDiscount(l.discount) && (l.note===undefined || string(l.note)) && (l.verified===undefined || typeof l.verified==='boolean') && (l.priceOverride===undefined || integer(l.priceOverride,1,999999999)) && (l.scaleWeight===undefined || typeof l.scaleWeight==='number'&&Number.isFinite(l.scaleWeight)&&l.scaleWeight>0&&l.scaleWeight<=999))
+  return v.lines.every((l: unknown)=>record(l) && string(l.id) && !!l.id && products.some(p=>p.id===l.productId) && validQuantity(l.quantity, l.saleUnit || 'piece') && (l.saleUnit===undefined || ['piece','kg','g','l','ml','pack'].includes(l.saleUnit)) && (l.saleUnit!=='pack' || integer(l.packSize,2,999) && integer(l.packPrice,1)) && (l.scaleWeight===undefined || l.quantity===1 && l.saleUnit!=='pack') && isDiscount(l.discount) && (l.note===undefined || string(l.note)) && (l.manualName===undefined || string(l.manualName) && !!l.manualName.trim() && l.manualName.length<=80) && (l.verified===undefined || typeof l.verified==='boolean') && (l.priceOverride===undefined || integer(l.priceOverride,1,999999999)) && (l.scaleWeight===undefined || typeof l.scaleWeight==='number'&&Number.isFinite(l.scaleWeight)&&l.scaleWeight>0&&l.scaleWeight<=999))
     && unique(v.lines.map((l:Line)=>l.id)) && isDiscount(v.discount)
     && (v.coupon===undefined || string(v.coupon) && /^[A-Z0-9_-]{2,32}$/.test(v.coupon))
     && (v.customer===undefined || string(v.customer)) && ['takeaway','dinein'].includes(v.service)
@@ -803,10 +807,11 @@ function validPricing(p: unknown, sale: Sale, total: number) {
   if(p.savings!==undefined && (!Array.isArray(p.savings) || !p.savings.every((saving:unknown)=>record(saving) && string(saving.reason) && integer(saving.amount))))return false;
   const rowKeys=['gross','itemDiscount','promo','basketDiscount','reward','net','tax','total','taxRate'];
   if(!p.rows.every((r:unknown)=>record(r) && sale.lines.some(l=>l.id===r.id) && rowKeys.every(k=>integer(r[k])) && typeof r.eligible==='boolean' && r.net+r.tax===r.total))return false;
-  return ['subtotal','itemDiscount','promotions','basketDiscount','reward','taxable','tax','total','count'].every(k=>integer(p[k])) && p.total===total && p.rows.reduce((sum:number,r:{total:number})=>sum+r.total,0)===total;
+  return ['subtotal','itemDiscount','promotions','basketDiscount','reward','taxable','tax','total'].every(k=>integer(p[k])) && typeof p.count==='number' && Number.isFinite(p.count) && p.count>=0 && p.total===total && p.rows.reduce((sum:number,r:{total:number})=>sum+r.total,0)===total;
 }
 export function checkoutError(s: State): string | undefined {
   if(!s.sale.lines.length) return 'السلة فارغة';
+  if(!isSale(s.sale)) return 'تحقق من كميات ووحدات الأصناف';
   if(s.sale.lines.some(l=>productById(l.productId).age && !l.verified)) return 'تحقق من عمر العميل للأصناف المقيدة';
   const conflict = discountConflict(s.sale); if (conflict) return conflict;
   if(s.sale.coupon) {const error=couponError(s.sale.coupon,s.sale);if(error)return error;}
@@ -823,8 +828,8 @@ function reverseLoyalty(customers: Customer[], tx: Transaction, before: number, 
 export function validState(v: unknown): v is State {
   if(!record(v) || !isSale(v.sale) || !Array.isArray(v.held) || !v.held.every(isSale) || !Array.isArray(v.customers) || !v.customers.every(isCustomer) || !Array.isArray(v.transactions) || !Array.isArray(v.refunds) || !Array.isArray(v.audit) || !integer(v.next,1)) return false;
   if(v.previous!==undefined && !isSale(v.previous)) return false;
-  if(!v.transactions.every((t: unknown)=>record(t) && isSale(t.sale) && validPayments(t.payments) && integer(t.total) && t.payments.reduce((sum:number,p:Payment)=>sum+p.amount,0)===t.total && ['completed','void'].includes(t.status) && record(t.refunded) && Object.entries(t.refunded).every(([id,q])=>t.sale.lines.some((l:Line)=>l.id===id && integer(q,0,l.quantity))) && (t.completedAt===undefined || (string(t.completedAt)&&Number.isFinite(Date.parse(t.completedAt)))) && (t.unitCosts===undefined || (record(t.unitCosts)&&Object.values(t.unitCosts).every(c=>c===null||integer(c)))) && (t.receipt===undefined || string(t.receipt)) && (t.pricing===undefined || validPricing(t.pricing,t.sale,t.total)))) return false;
-  if(!v.refunds.every((r: unknown)=>record(r) && string(r.id) && string(r.transactionId) && (r.at===undefined || (string(r.at)&&Number.isFinite(Date.parse(r.at)))) && v.transactions.some((t:Transaction)=>t.sale.id===r.transactionId) && integer(r.total) && string(r.reason) && record(r.lines) && Object.values(r.lines).every(q=>integer(q)) && Array.isArray(r.allocations) && r.allocations.every((a:unknown)=>record(a) && ['cash','card','contactless'].includes(a.method) && integer(a.amount)) && r.allocations.reduce((sum:number,a:{amount:number})=>sum+a.amount,0)===r.total)) return false;
+  if(!v.transactions.every((t: unknown)=>record(t) && isSale(t.sale) && validPayments(t.payments) && integer(t.total) && t.payments.reduce((sum:number,p:Payment)=>sum+p.amount,0)===t.total && ['completed','void'].includes(t.status) && record(t.refunded) && Object.entries(t.refunded).every(([id,q])=>t.sale.lines.some((l:Line)=>l.id===id && validQuantity(q,lineUnit(l),0,l.quantity))) && (t.completedAt===undefined || (string(t.completedAt)&&Number.isFinite(Date.parse(t.completedAt)))) && (t.unitCosts===undefined || (record(t.unitCosts)&&Object.values(t.unitCosts).every(c=>c===null||integer(c)))) && (t.receipt===undefined || string(t.receipt)) && (t.pricing===undefined || validPricing(t.pricing,t.sale,t.total)))) return false;
+  if(!v.refunds.every((r: unknown)=>record(r) && string(r.id) && string(r.transactionId) && (r.at===undefined || (string(r.at)&&Number.isFinite(Date.parse(r.at)))) && v.transactions.some((t:Transaction)=>t.sale.id===r.transactionId) && integer(r.total) && string(r.reason) && record(r.lines) && Object.entries(r.lines).every(([id,q])=>{const line=v.transactions.find((t:Transaction)=>t.sale.id===r.transactionId)?.sale.lines.find((l:Line)=>l.id===id);return line && validQuantity(q,lineUnit(line),0,line.quantity);}) && Array.isArray(r.allocations) && r.allocations.every((a:unknown)=>record(a) && ['cash','card','contactless'].includes(a.method) && integer(a.amount)) && r.allocations.reduce((sum:number,a:{amount:number})=>sum+a.amount,0)===r.total)) return false;
   if(!v.audit.every((a: unknown)=>record(a) && string(a.id) && string(a.action) && string(a.reason) && string(a.cashier) && date(a.at) && (a.manager===undefined || string(a.manager)))) return false;
   const saleIds=[v.sale.id,...v.held.map((s:Sale)=>s.id),...v.transactions.map((t:Transaction)=>t.sale.id)];
   return unique(saleIds) && saleIds.every(id=>/^\d+$/.test(id) && Number(id)<v.next) && unique(v.customers.map((c:Customer)=>c.id));
@@ -845,3 +850,6 @@ export function loadState(): State {
   }
   return seed();
 }
+
+export const productEntryMode = (product: Product): 'manual' | 'barcode' => product.entryMode || (product.custom ? 'barcode' : 'manual');
+

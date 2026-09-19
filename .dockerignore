@@ -1,5 +1,12 @@
-node_modules
-dist
-test-results
-playwright-report
-.git
+node_modules/
+dist/
+test-results/
+playwright-report/
+.wrangler/
+.git/
+qa/
+e2e/
+*.log
+*.md
+playwright*.ts
+wrangler.jsonc

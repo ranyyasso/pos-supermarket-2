@@ -4,24 +4,24 @@ test.beforeEach(async({page})=>{await page.goto('/');});
 test('thermal settings persist and show a receipt-only preview',async({page})=>{
  await page.getByRole('button',{name:'الإعدادات',exact:true}).click();
  await page.getByRole('combobox',{name:'عرض الورق',exact:true}).selectOption('58');
- await page.getByRole('button',{name:'حفظ الإعدادات',exact:true}).click();
+
  await page.reload();
  await page.getByRole('button',{name:'الإعدادات',exact:true}).click();
  await expect(page.getByRole('combobox',{name:'عرض الورق',exact:true})).toHaveValue('58');
- await page.getByRole('button',{name:'معاينة اختبار',exact:true}).click();
+ await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await page.getByRole('button',{name:'معاينة اختبار',exact:true}).click();
  const frame=page.frameLocator('iframe[title="معاينة الإيصال الحراري"]');
  await expect(frame.getByRole('heading',{name:'اختبار الطابعة الحرارية',exact:true})).toBeVisible();
  await expect(frame.getByRole('status')).toHaveText('معاينة فقط. لم يُرسل الإيصال إلى الطابعة.');
  await expect(frame.locator('html')).toHaveAttribute('dir','rtl');
  await page.getByRole('button',{name:/^العودة إلى (الإعدادات|الأصناف|الإيصال|المعاملات)$/}).click();
- await expect(page.getByRole('button',{name:'حفظ الإعدادات',exact:true})).toBeVisible();
+ await expect(page.getByRole('tab',{name:'الإيصال',exact:true})).toBeVisible();
 });
 test('thermal printing can be disabled in settings',async({page})=>{
  await page.getByRole('button',{name:'الإعدادات',exact:true}).click();
  const enabled=page.getByRole('checkbox',{name:'تفعيل طباعة الإيصالات الحرارية',exact:true});
  await enabled.uncheck();
- await expect(page.getByRole('button',{name:'معاينة اختبار',exact:true})).toBeDisabled();
- await page.getByRole('button',{name:'حفظ الإعدادات',exact:true}).click();
+ await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await expect(page.getByRole('button',{name:'معاينة اختبار',exact:true})).toBeDisabled();
+
  await page.reload();
  await page.getByRole('button',{name:'الإعدادات',exact:true}).click();
  await expect(page.getByRole('checkbox',{name:'تفعيل طباعة الإيصالات الحرارية',exact:true})).not.toBeChecked();

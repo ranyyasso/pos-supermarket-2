@@ -3,7 +3,7 @@ const button=(page:Page,name:string)=>page.getByRole('button',{name,exact:true})
 const field=(page:Page,name:string)=>page.getByRole('textbox',{name,exact:true});
 async function manager(page:Page){await field(page,'رمز المدير').fill('2468');await button(page,'اعتماد العملية').click();}
 test('settings categories persist and populate barcode receiving and new-product registration',async({page})=>{
-  await page.goto('/');await button(page,'الإعدادات').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByText('الفئات',{exact:true}).click();
+  await page.goto('/');await button(page,'الإعدادات').click();await page.getByRole('tab',{name:'الفئات',exact:true}).click();
   await field(page,'اسم الفئة').fill('مستلزمات المدرسة');await button(page,'إضافة فئة').click();await manager(page);
   await expect(page.locator('.registered-categories')).toContainText('مستلزمات المدرسة');
   await field(page,'اسم الفئة').fill('مستلزمات المدرسة');await button(page,'إضافة فئة').click();await expect(page.getByRole('alert')).toContainText('مسجلة');await field(page,'اسم الفئة').fill('');

@@ -33,18 +33,6 @@ test('label copies are contextual and invalid copies cannot print a stale previe
   await expect(page.getByRole('spinbutton',{name:'عدد الملصقات'})).toHaveCount(0);
 });
 
-test('collapsed settings retain edits and test preview keeps setup instructions optional',async({page})=>{
-  await b(page,'العودة إلى شاشة البيع').click();await b(page,'الإعدادات').click();
-  await expect(field(page,'اسم الطابعة في Windows')).toBeHidden();
-  await expect(field(page,'اسم المتجر')).toBeHidden();
-  await page.getByRole('tab',{name:'المتجر',exact:true}).click();await field(page,'اسم المتجر').fill('متجر مبسط');
-  await page.getByRole('tab',{name:'الأجهزة',exact:true}).click();await b(page,'العودة إلى شاشة البيع').click();
-  await b(page,'العودة إلى التحرير').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();
-  await expect(field(page,'اسم المتجر')).toHaveValue('متجر مبسط');
-  await b(page,'حفظ الإعدادات').click();await b(page,'معاينة اختبار').click();
-  const frame=page.frameLocator('iframe');
-  await expect(frame.getByRole('heading',{name:'متجر مبسط',exact:true})).toBeVisible();
-  await expect(frame.locator('details')).not.toHaveAttribute('open');
-  await expect(frame.getByRole('status')).toContainText('لم يُرسل');
-  await b(page,'العودة إلى الإعدادات').click();await expect(field(page,'اسم المتجر')).toHaveValue('متجر مبسط');
+test('expanded settings autosave and keep the receipt test preview',async({page})=>{
+ await b(page,'العودة إلى شاشة البيع').click();await b(page,'الإعدادات').click();await expect(field(page,'اسم الطابعة في Windows')).toBeVisible();await page.getByRole('tab',{name:'المتجر',exact:true}).click();await field(page,'اسم المتجر').fill('متجر مبسط');await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await b(page,'معاينة اختبار').click();const frame=page.frameLocator('iframe');await expect(frame.getByRole('heading',{name:'متجر مبسط',exact:true})).toBeVisible();await expect(frame.getByRole('status')).toContainText('لم يُرسل');await b(page,'العودة إلى الإعدادات').click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();await expect(field(page,'اسم المتجر')).toHaveValue('متجر مبسط');
 });

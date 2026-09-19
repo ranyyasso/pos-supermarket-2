@@ -2,7 +2,7 @@ export type WholesaleRule = { price: number; minimum: number };
 export type StoreOffer = { id: string; name: string; code: string; kind: 'percent' | 'fixed'; value: number; minimumSpend: number; category: string; active: boolean };
 export type SalesSettings = { wholesaleEnabled: boolean; wholesale: Record<string, WholesaleRule>; demoMode?: boolean; offers?: StoreOffer[] };
 export const salesSettingsKey = 'mizan-sales-settings-v1';
-export const defaultSalesSettings = (): SalesSettings => ({ wholesaleEnabled: false, wholesale: {}, demoMode: true, offers: [] });
+export const defaultSalesSettings = (): SalesSettings => ({ wholesaleEnabled: false, wholesale: {}, demoMode: import.meta.env.MODE === 'test', offers: [] });
 export function validOffer(offer: StoreOffer): boolean {
   return !!offer && typeof offer.id === 'string' && !!offer.id && typeof offer.name === 'string' && !!offer.name.trim() && typeof offer.code === 'string' && (!offer.code || /^[A-Z0-9_-]{2,32}$/.test(offer.code)) && ['percent','fixed'].includes(offer.kind) && Number.isSafeInteger(offer.value) && offer.value > 0 && (offer.kind !== 'percent' || offer.value <= 100) && Number.isSafeInteger(offer.minimumSpend) && offer.minimumSpend >= 0 && typeof offer.category === 'string' && typeof offer.active === 'boolean';
 }

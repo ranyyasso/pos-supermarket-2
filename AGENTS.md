@@ -119,3 +119,124 @@ Cash-drawer spacing decision (2026-09-17): Keep the drawer dialog compact with n
 Settings organization decision (2026-09-17): Reserve the sidebar grid for the outer settings workspace. Inner category, wholesale and offer forms stack vertically with aligned responsive fields, clear bordered disclosure sections, consistent spacing and local save actions. Global settings actions follow content without covering fields.
 
 Unsaved changes decision (2026-09-17): Ask حفظ التغييرات؟ in a compact modal with نعم / لا. Yes runs existing validated save and approval workflows before navigation; No discards and leaves; X cancels navigation and preserves the draft.
+
+Settings consistency decision (2026-09-17): Apply the approved Store settings organization to Hardware and Receipt: distinct bordered groups for printer and drawer, separate advanced-option cards, consistent field spacing, and setup guidance before the shared action footer.
+
+Category controls decision (2026-09-17): Show an explicit add action and a remove icon for categories. Prevent deleting categories still assigned to products. Limit new category names to 24 characters with a visible Latin-digit counter.
+
+Category capacity decision (2026-09-17): Allow at most 13 regular categories plus the separate Favorites slot (14 total). Exclude Favorites from category management and the 13-category count; disable additions at capacity and enforce the limit in persistence without deleting existing saved categories.
+
+Store settings simplification (2026-09-17): Remove the Wholesale disclosure and configuration controls from Store settings. Preserve existing stored pricing rules and transaction compatibility.
+
+Settings tabs decision (2026-09-18): Remove the Receipt sidebar tab. Move receipt footer and store logo into Store details and keep receipt appearance options under Store; preserve saved values, preview and unsaved-change protection.
+
+Receipt actions decision (2026-09-19): Remove the thermal-printer settings shortcut from the receipt dialog. Label its primary print action طباعة while preserving the enabled-printer requirement and existing preview/print flow.
+
+Category typography decision (2026-09-19): Use bold 700-weight text for all sale category names, including Favorites, preserving centered labels and existing button sizing.
+
+Suspended-sale deletion decision (2026-09-19): Delete a suspended sale immediately from its delete button without a confirmation dialog. This supersedes the earlier confirmation requirement.
+
+Immediate suspension decision (2026-09-19): The basket suspend button saves immediately without a hold dialog, retaining automatic first-product naming and saved item count/total.
+
+Discount dialog simplicity (2026-09-19): Remove the explanatory paragraph about manager approval and discount combinations from the discount dialog; preserve the underlying validation and approval rules.
+
+Immediate recall decision (2026-09-19): Recall a suspended sale immediately without confirmation, preserving the automatic suspension of a populated current basket.
+
+Numeric stepper decision (2026-09-19): Replace native number-input arrows throughout the app with a shared touch-sized minus/value/plus control, retaining typing, limits and step precision. Remove the refund instruction paragraph.
+
+Refund toolbar decision (2026-09-19): Remove the separate Transactions toolbar button. Use the clock-with-circular-arrow History icon for the remaining Start Refund action, preserving its receipt-selection flow.
+
+Refund invoice list decision (2026-09-19): Receipt-number search opens a compact numeric keypad modal. Display saved invoices in a theme-matched RTL table with invoice, status, payment method, amount and refund action columns; preserve eligibility and existing transaction actions. No tests requested for this change.
+
+Receipt search decision (2026-09-19): Hide the receipt-number keypad popup for now; keep direct numeric search entry and the invoice table. This supersedes the keypad-opening behavior.
+
+Refund reasons decision (2026-09-19): Refunds use a required dropdown backed by saved reasons configured under Settings > Store > أسباب الاسترجاع, one reason per line. Remove the cash-conversion checkbox and keep refunds allocated to original payment methods with existing manager approval.
+
+Post-payment printing decision (2026-09-19): Show only طباعة and بدون طباعة buttons after payment. Print directly invokes the PC browser print dialog using the thermal receipt document, without app preview or completion modals; no-print returns to the sale. Preserve printer-enabled gating, original receipt data and simulated drawer audit. Browser print requests do not confirm physical output.
+
+Theme decision (2026-09-19): Preserve the current palette as the default Dark theme and provide a soft milky Light theme in Settings. Persist the choice through Save Settings, retain unsaved-change protection, and apply it across sale, management and dialogs while keeping category colors and printed receipts intact.
+
+Settings organization and autosave decision (2026-09-19): Use direct Settings tabs for Store, Categories, Hardware, Receipt, Offers, and Appearance/Demo. All fields in the selected tab stay expanded with no nested disclosures. Save valid settings edits automatically without Save buttons; keep explicit category add/remove actions, protected manager approval for offers/demo/category operations, validation, storage failure feedback and draft recovery. This supersedes the earlier receipt-tab removal and manual settings-save decisions.
+
+Approval removal decision (2026-09-19): Remove manager PIN approval throughout the app; execute requested operations directly with existing validation, persistence, audit records and relevant confirmations. Do not attribute these operations to a manager. Remove the offer activation checkbox; new offers are active when saved, preserving existing offers' stored activation state.
+
+Invoice view decision (2026-09-19): Add عرض الفاتورة beside استرجاع in the invoice table. Open saved receipt details with a printer-enabled طباعة action that requests browser printing directly. Closing returns to the invoice list with its search preserved; viewing or reprinting does not change stock or trigger a drawer pulse.
+
+Product pagination decision (2026-09-19): Use react-paginate with RTL page numbers and left/right arrows in product management. Compute page capacity from available viewport height using touch-sized rows and room for the footer; reset to page one on search/filter changes. Keep item actions and theme colors.
+
+Product list columns decision (2026-09-19): Product management uses columns ordered name, price, stock quantity, stock/availability status, barcode, then existing actions. Preserve current text sizes, use available workspace width and adaptive pagination for the 15-inch display; wrap long content and actions rather than reducing type size.
+
+Stock status colors decision (2026-09-19): Product table stock status has three one-word Arabic badges: متوفر (green), منخفض (yellow, existing low-stock threshold), نافد (red, zero stock). Keep status text readable in both themes.
+
+Product types decision (2026-09-19): Split management into Barcode and Manual pages. Both track stock. Barcode products have no favorites or label-generation action; manual products have favorites and an add-item action and do not require barcode entry. Existing built-in POS buttons default to manual while registered products default to barcode, preserving legacy IDs/codes and stock. Only manual products appear as POS category buttons; barcode search remains available. Remove label buttons from product management.
+
+UI-only database decision (2026-09-19): Remove the unused Supabase/PostgreSQL foundation, client, database scripts/tests and dependencies. Keep browser demo storage and existing data for UI design. The user will design two separate database tables later, one for manual products and one for barcode products; do not add a database or schema now. POS category buttons use manual products; barcode/scale lookup and barcode receiving use only barcode products. This supersedes earlier database-foundation instructions.
+
+Supabase migration handoff decision (2026-09-19): Remove built-in mock products, prefilled sale/customer data and default favorites. Store schema-only, sequentially numbered SQL files under `supabase/migrations/`, beginning with `0001_create_product_tables.sql`. Do not run, commit or push migrations; report that the file is ready for the user to copy and paste into Supabase Cloud. Cloud connection requires the project URL, anonymous/publishable key, browser-safe RLS policies and client integration.
+
+Supabase Cloud connection decision (2026-09-19): The frontend is deployed from GitHub through Cloudflare and uses Supabase project `ilvztkvqggidnnggqnof`. Keep URL/key values in local and Cloudflare build environment variables, never the PostgreSQL password in browser code. With Auth not yet implemented, migration `0002_anonymous_product_access.sql` provides temporary anonymous CRUD for product tables only. Do not run, commit, push or deploy on the user's behalf; provide numbered migrations for manual copy/paste.
+
+Product form modal decision (2026-09-19): Add/edit product forms open centered modal dialogs, with distinct Manual and Barcode titles/fields rather than full management workspaces. Keep draft protection and return to the originating page. Both product lists show the existing stable ID in an ID column. UI/demo only; no database work.
+
+Modal origin decision (2026-09-19): Popups retain their originating screen behind them and close back to that origin, preserving selected tabs and filters. Track nested popup origins consistently across the app. Preserve unsaved-edit protection and protected payment/receipt dismissal behavior; payment completion remains a deliberate flow transition.
+
+Product ID visibility decision (2026-09-19): Remove the visible ID column from both manual and barcode product lists. Preserve internal identifiers. This supersedes the earlier visible-ID decision.
+
+Management sidebar decision (2026-09-19): Remove the المخزون والاستلام navigation entry from the management sidebar. Keep product stock data intact.
+
+Basket quantity separator decision (2026-09-19): Replace the colored stripe between basket quantity and product name with a neutral multiplication sign × on every basket row.
+
+Mixed-unit selling decision (2026-09-19): Use per-item selling options inside the expanded basket row with a square expand button and large theme-matched controls. Remove its item-discount button and the whole-sale single/wholesale switch. Product forms configure base unit (piece, kg, g, liter, ml), optional pack size/price/barcode, and optional automatic wholesale minimum/unit price. Packs count in whole packs and deduct their snapshotted piece count; measures accept up to 3 decimal places. Wholesale applies automatically to qualifying loose units and does not stack with explicit discounts/coupons. Pack price is independent. Preserve unit/pack snapshots through saved sales, receipts, refunds and reports. Keep historical sale-mode compatibility and simulated browser-only financial flows.
+
+Basket row interaction decision (2026-09-19): Remove the multiplication separator and separate expand arrow. Tapping the product row, including quantity, name, price and whitespace, toggles selling options. The remove button only deletes and does not toggle options.
+
+Unsaved navigation simplification (2026-09-19): Remove the حفظ التغييرات؟ yes/no confirmation for in-app navigation and form dismissal. Close/cancel returns directly to the originating screen without submitting the form; explicit save actions and existing settings autosave remain. Supersedes the earlier in-app unsaved confirmation requirement.
+
+Expanded product form decision (2026-09-19): Keep pack selling, wholesale and additional product fields expanded in bordered sections in the add/edit modal. Use a compact three-column desktop form and shorter inputs/spacing without reducing text sizes; adapt to smaller screens with scrolling as needed.
+
+Basket wholesale choice (2026-09-19): Add a per-line جملة checkbox using the saved product wholesale unit price. An explicit checkbox selection overrides automatic quantity qualification; deselecting uses retail. Disable it when no valid wholesale price is configured and retain discount-combination validation. Preserve purchase cost, retail price and wholesale price as separate product values.
+
+Wholesale toggle appearance (2026-09-19): Use a square 56px جملة button with aria-pressed instead of the checkbox. Active state is green; retain wholesale price validation and disabled state when unconfigured.
+
+Product simplification (2026-09-19): Remove pack-sale and wholesale configuration sections and their basket controls. Move stock quantity to the main product fields in place of the category selector; remove supplier entry. Preserve stored historical values and transaction compatibility.
+
+Barcode entry simplification (2026-09-19): Remove the توليد باركود داخلي button from product forms; retain direct barcode entry.
+
+Product stock form decision (2026-09-19): Remove unit selection and unit suffixes from product price labels; new products default to pieces. Replace the selector with الحد الأدنى للمخزون using a whole-number stepper; save it as minStock for low-stock status. Preserve legacy stored units without silently converting historical quantities.
+
+Barcode list filtering decision (2026-09-19): Show category filtering only for manual products. Barcode product lists omit and ignore category filtering, including any selection retained from the manual tab.
+
+Product add button label (2026-09-19): Both barcode and manual product list add buttons say only إضافة.
+
+Initial stock input (2026-09-19): Start new-product initial stock empty rather than prefilled with 0; retain existing stock values when editing.
+Required product fields (2026-09-19): Initial/current stock and purchase price are required in manual and barcode product forms. Mark both with an asterisk and reject blank values on save; explicitly entered zero remains valid.
+
+Manual category and minimum stock decision (2026-09-19): Restore category selection in manual product add/edit forms only. Minimum stock is required for both product types, defaults to 1, and accepts whole numbers from 1 to 999999. Existing lower thresholds are shown as 1 when editing and saved only with the form.
+
+Refund invoice selector decision (2026-09-19): Show the invoice table for starting a refund in a centered modal, with a viewport-aware maximum number of rows and RTL pagination controls.
+
+Refund selector sizing decision (2026-09-19): Use a wider, taller refund invoice selector so the complete table and action column fit without horizontal clipping on the primary POS display.
+
+Expiry decision (2026-09-19): Remove expiry dates from all product UI and workflows. Retain any legacy saved expiry data only for backward compatibility; do not expose or modify it.
+
+Price-check focus decision (2026-09-19): Opening the price-check modal automatically focuses its product/barcode input and selects any existing value so scanner input or typing can replace it immediately.
+
+Price-check add decision (2026-09-19): Every price-check match includes a clear green `إضافة للسلة` button. It adds the matched product and closes the price-check modal in one tap.
+
+Price-check single-step decision (2026-09-19): Remove the separate product-detail result step from price check. Keep matches, prices and the green add-to-basket action together in the initial price-check modal.
+
+Price-check scrollbar decision (2026-09-19): Give the scrollable price-check result list a wide, high-contrast scrollbar thumb that can be grabbed comfortably with a finger.
+
+Price-check scrollbar placement decision (2026-09-19): Place the price-check result list's touch scrollbar on the right edge while retaining RTL content alignment.
+
+Payment modal simplicity decision (2026-09-19): Remove the visual note stating that payment is simulated; retain the simulated payment behavior and validation.
+
+Payment keypad and method decision (2026-09-19): Replace the keypad's clear key with `000`; backspace remains available. Payment offers two prominent choices, نقداً and بطاقة. Cash retains tendered amount and change handling; card records the entered exact amount with no change.
+
+Refund invoice columns decision (2026-09-19): Remove the Status column from the invoice table; keep invoice, payment method, amount and actions.
+
+Manual basket item decision (2026-09-19): Replace the split-payment shortcut beside Discount with a `صنف يدوي` action. It opens a compact touch numeric keypad for a one-off amount plus an optional item name, adds the line to the basket, and does not create a saved product or change inventory.
+
+Toolbar order decision (2026-09-19): Place Price Check immediately to the left of Reports in the bottom POS toolbar.
+
+Database schema decision (2026-09-19): Use one supermarket/location/checkout and one Supabase Auth owner. Separate manual and barcode products; custom unit label, one price, cost, three-decimal stock, no wholesale/package/tax/expiry/supplier. Manual products use categories/favorites; barcode products use one barcode and no category. Use a global low-stock setting. Keep permanent anonymous sales with one cash/card method and six-digit receipts from 325100, line/basket percent or fixed discounts, manual-entry lines, suspended baskets, and partial reason-required stock-restoring refunds. Store settings except logos, derive reports, keep no stock/drawer/general audit history, use Baghdad time and online-only operation. SQL stays manual copy/paste and is never run, committed, pushed, or deployed by the agent.

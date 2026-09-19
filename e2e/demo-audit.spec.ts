@@ -1,22 +1,15 @@
 import {test,expect,type Page} from '@playwright/test';
 import {mkdirSync} from 'node:fs';
 const errors=new WeakMap<Page,string[]>();
-test('wholesale is opt-in and configured prices survive reload',async({page})=>{
- await expect(page.getByRole('button',{name:'جملة',exact:true})).toBeHidden();
+test('Store settings omit wholesale configuration',async({page})=>{
  await page.getByRole('button',{name:'الإعدادات',exact:true}).click();
- await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByText('البيع بالجملة',{exact:true}).click();
- await page.getByRole('checkbox',{name:'تفعيل البيع بالجملة',exact:true}).click();await manager(page);
- await page.getByRole('textbox',{name:'سعر الجملة الاختياري',exact:true}).fill('7000');
- await page.getByRole('textbox',{name:'الحد الأدنى للجملة',exact:true}).fill('1');
- await page.getByRole('button',{name:'حفظ سعر الجملة',exact:true}).click();await manager(page);
- await page.getByRole('button',{name:'العودة إلى شاشة البيع',exact:true}).click();
- const total=page.getByTestId('grand-total');const retail=await total.innerText();await page.getByRole('button',{name:'جملة',exact:true}).click();
- await expect(total).not.toHaveText(retail);await expect(page.locator('.basket-line').first()).toContainText('7,000');
- await page.reload();await expect(page.getByRole('button',{name:'جملة',exact:true})).toHaveAttribute('aria-pressed','true');
- await expect(page.locator('.basket-line').first()).toContainText('7,000');
+ await page.getByRole('tab',{name:'المتجر',exact:true}).click();
+ await expect(page.getByText('البيع بالجملة',{exact:true})).toHaveCount(0);
+ await expect(page.getByRole('checkbox',{name:'تفعيل البيع بالجملة',exact:true})).toHaveCount(0);
 });
+
 test('completed receipt survives reload and can be reprinted without another sale',async({page})=>{
- await cashSale(page);await receiptDone(page);await page.reload();await history(page);await expect(page.locator('.transaction-card')).toHaveCount(1);await page.getByRole('button',{name:'إعادة الإيصال',exact:true}).click();await page.getByRole('button',{name:'معاينة وطباعة الإيصال',exact:true}).click();await expect(page.frameLocator('iframe').getByRole('main')).toContainText('48,400');await page.getByRole('button',{name:/^العودة إلى (الإعدادات|الأصناف|الإيصال|المعاملات)$/}).click();await page.getByRole('button',{name:'بدء طلب جديد',exact:true}).click();await history(page);await expect(page.locator('.transaction-card')).toHaveCount(1);
+ await cashSale(page);await receiptDone(page);await page.reload();await history(page);await expect(page.locator('.transaction-card')).toHaveCount(1);await page.getByRole('button',{name:'إعادة الإيصال',exact:true}).click();await page.locator('button.primary').filter({hasText:/^طباعة$/}).click();await expect(page.frameLocator('iframe').getByRole('main')).toContainText('48,400');await page.getByRole('button',{name:/^العودة إلى (الإعدادات|الأصناف|الإيصال|المعاملات)$/}).click();await page.getByRole('button',{name:'بدء طلب جديد',exact:true}).click();await history(page);await expect(page.locator('.transaction-card')).toHaveCount(1);
 });
 test('audit navigation is removed while records are preserved',async({page})=>{
  await page.getByRole('button',{name:'حفظ في المبيعات المعلقة',exact:true}).click();await page.getByRole('button',{name:'حفظ في المبيعات المعلقة',exact:true}).click();await page.getByRole('button',{name:'الإعدادات والإدارة',exact:true}).click();await expect(page.getByRole('button',{name:'سجل العمليات',exact:true})).toHaveCount(0);expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('mizan-pos-v1')!).audit.some((a:any)=>a.action==='تعليق بيع'))).toBe(true);
@@ -25,7 +18,7 @@ test('print button requests printing without asserting physical success',async({
  await page.addInitScript(()=>{window.print=()=>{document.documentElement.dataset.printRequested='yes';};});await page.reload();await printer(page);await page.getByRole('button',{name:'معاينة اختبار',exact:true}).click();const frame=page.frameLocator('iframe');await frame.getByRole('button',{name:'طباعة / حفظ PDF',exact:true}).click();await expect(frame.locator('html')).toHaveAttribute('data-print-requested','yes');await expect(frame.getByRole('status')).toContainText('لا يؤكد خروج الورق');
 });
 test('cash receipt print request demonstrates the printer-connected drawer pulse',async({page})=>{
- await page.addInitScript(()=>{window.print=()=>{};});await page.reload();await printer(page);await page.getByText('إعدادات الطابعة المتقدمة',{exact:true}).click();await page.getByRole('textbox',{name:'اسم الطابعة في Windows',exact:true}).fill('EPSON Demo');await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByRole('textbox',{name:'هاتف المتجر',exact:true}).fill('07701234567');await page.getByRole('textbox',{name:'الرقم الضريبي',exact:true}).fill('TAX-42');await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await page.getByText('مظهر متقدم',{exact:true}).click();await page.getByRole('textbox',{name:'بادئة رقم الإيصال',exact:true}).fill('POS-');await page.getByRole('button',{name:'حفظ الإعدادات',exact:true}).click();await page.getByRole('button',{name:'العودة إلى شاشة البيع',exact:true}).click();await cashSale(page);await expect(dialog(page)).not.toContainText('نبضة درج النقد');await page.getByRole('button',{name:'معاينة وطباعة الإيصال',exact:true}).click();const frame=page.frameLocator('iframe');await expect(frame.getByRole('main')).toContainText('الهاتف: 07701234567');await expect(frame.getByRole('main')).toContainText('الرقم الضريبي: TAX-42');await expect(frame.getByRole('heading',{name:/إيصال #POS-/})).toBeVisible();await frame.getByRole('button',{name:'طباعة / حفظ PDF',exact:true}).click();await page.getByRole('button',{name:/^العودة إلى (الإعدادات|الأصناف|الإيصال|المعاملات)$/}).click();await expect(dialog(page)).toContainText('تمت محاكاة نبضة درج النقد');
+ await page.addInitScript(()=>{window.print=()=>{};});await page.reload();await printer(page);await page.getByText('إعدادات الطابعة المتقدمة',{exact:true}).click();await page.getByRole('textbox',{name:'اسم الطابعة في Windows',exact:true}).fill('EPSON Demo');await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByRole('textbox',{name:'هاتف المتجر',exact:true}).fill('07701234567');await page.getByRole('textbox',{name:'الرقم الضريبي',exact:true}).fill('TAX-42');await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await page.getByText('مظهر متقدم',{exact:true}).click();await page.getByRole('textbox',{name:'بادئة رقم الإيصال',exact:true}).fill('POS-');await page.getByRole('button',{name:'العودة إلى شاشة البيع',exact:true}).click();await cashSale(page);await expect(dialog(page)).not.toContainText('نبضة درج النقد');await page.locator('button.primary').filter({hasText:/^طباعة$/}).click();const frame=page.frameLocator('iframe');await expect(frame.getByRole('main')).toContainText('الهاتف: 07701234567');await expect(frame.getByRole('main')).toContainText('الرقم الضريبي: TAX-42');await expect(frame.getByRole('heading',{name:/إيصال #POS-/})).toBeVisible();await frame.getByRole('button',{name:'طباعة / حفظ PDF',exact:true}).click();await page.getByRole('button',{name:/^العودة إلى (الإعدادات|الأصناف|الإيصال|المعاملات)$/}).click();await expect(dialog(page)).toContainText('تمت محاكاة نبضة درج النقد');
 });
 test('daily reports summarize saved sales and export CSV',async({page})=>{
  await cashSale(page);await receiptDone(page);await page.getByRole('button',{name:'الإعدادات والإدارة',exact:true}).click();await page.getByRole('button',{name:'التقارير',exact:true}).click();await expect(page.getByRole('heading',{name:'التقارير',exact:true})).toBeVisible();await expect(page.locator('.report-summary')).toContainText('48,400');await expect(page.locator('.report-summary')).toContainText('1');await expect(page.locator('.report-columns')).toContainText('بسكويت حليب');const download=page.waitForEvent('download');await page.getByRole('button',{name:'تصدير CSV',exact:true}).click();const file=await download;expect(file.suggestedFilename()).toMatch(/^mizan-report-\d{4}-\d{2}-\d{2}\.csv$/);
@@ -141,14 +134,14 @@ test('blocked storage shows a persistent warning and still allows a demo sale',a
  await page.addInitScript(()=>{Storage.prototype.setItem=function(){throw new Error('Storage blocked for test');};});await page.reload();await expect(page.getByRole('alert')).toContainText('تعذر حفظ');await page.getByRole('button',{name:'إضافة بسكويت حليب · علبة',exact:true}).click();await expect(total(page)).toContainText('57,200');
 });
 test('demo reset is confirmed and manager-approved',async({page})=>{
- await page.getByRole('button',{name:'إضافة بسكويت حليب · علبة',exact:true}).click();await page.getByRole('button',{name:'الإعدادات',exact:true}).click();await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByText('صيانة النسخة التجريبية',{exact:true}).click();await page.getByRole('button',{name:'إعادة بيانات التجربة',exact:true}).click();await page.getByRole('button',{name:'تأكيد المتابعة',exact:true}).click();await manager(page);await expect(total(page)).toContainText('48,400');
+ await page.getByRole('button',{name:'إضافة بسكويت حليب · علبة',exact:true}).click();await page.getByRole('button',{name:'الإعدادات',exact:true}).click();await page.getByRole('tab',{name:'المظهر والتجربة',exact:true}).click();await page.getByRole('button',{name:'إعادة بيانات التجربة',exact:true}).click();await page.getByRole('button',{name:'تأكيد المتابعة',exact:true}).click();await manager(page);await expect(total(page)).toContainText('48,400');
 });
 test('thermal previews escape editable text, print only the receipt and save PDF',async({page})=>{
- await printer(page);await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByRole('textbox',{name:'اسم المتجر',exact:true}).fill('مطعم اختبار <b>نص</b>');await page.getByRole('button',{name:'حفظ الإعدادات',exact:true}).click();
+ await printer(page);await page.getByRole('tab',{name:'المتجر',exact:true}).click();await page.getByRole('textbox',{name:'اسم المتجر',exact:true}).fill('مطعم اختبار <b>نص</b>');
  mkdirSync('qa',{recursive:true});
  await page.getByRole('tab',{name:'الأجهزة',exact:true}).click();
  for(const width of ['58','80']){
-  await page.getByRole('combobox',{name:'عرض الورق',exact:true}).selectOption(width);await page.getByRole('button',{name:'معاينة اختبار',exact:true}).click();const frame=page.frameLocator('iframe');await expect(frame.getByRole('heading',{name:'مطعم اختبار <b>نص</b>',exact:true})).toBeVisible();
+  await page.getByRole('tab',{name:'الأجهزة',exact:true}).click();await page.getByRole('combobox',{name:'عرض الورق',exact:true}).selectOption(width);await page.getByRole('tab',{name:'الإيصال',exact:true}).click();await page.getByRole('button',{name:'معاينة اختبار',exact:true}).click();const frame=page.frameLocator('iframe');await expect(frame.getByRole('heading',{name:'مطعم اختبار <b>نص</b>',exact:true})).toBeVisible();
   const html=await page.locator('iframe').getAttribute('srcdoc');const printPage=await page.context().newPage();await printPage.setContent(html!);await printPage.evaluate(()=>document.fonts.ready);await printPage.emulateMedia({media:'print'});await expect(printPage.locator('.print-controls')).toBeHidden();expect(await printPage.locator('.thermal-paper').evaluate((e,width)=>Math.abs(e.getBoundingClientRect().width-width*96/25.4),Number(width))).toBeLessThan(1);
   await printPage.pdf({path:`qa/thermal-test-${width}.pdf`,width:`${width}mm`,height:'220mm',printBackground:true});await printPage.close();await page.getByRole('button',{name:/^العودة إلى (الإعدادات|الأصناف|الإيصال|المعاملات)$/}).click();
  }
@@ -159,7 +152,7 @@ test('desktop layouts have no overflow, visible Pay and legible dialog controls'
   await page.setViewportSize(viewport);await page.screenshot({path:testInfo.outputPath(`client-demo-${viewport.width}.png`)});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await expect(page.getByRole('button',{name:/^الدفع/})).toBeInViewport();
  }
- await printer(page);await expect(page.getByRole('button',{name:'حفظ الإعدادات',exact:true})).toBeInViewport();await page.screenshot({path:'qa/client-demo-printer.png'});
+ await printer(page);await expect(page.getByRole('combobox',{name:'عرض الورق',exact:true})).toBeInViewport();await page.screenshot({path:'qa/client-demo-printer.png'});
 });
 
 
