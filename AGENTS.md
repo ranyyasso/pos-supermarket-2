@@ -1,5 +1,7 @@
 # Prototype Instructions
 
+Checkout action typography decision (2026-09-19): Use the same 16 px label size for the secondary basket actions (`خصم` and `تقسيم`) as the primary `الدفع` action. Preserve their existing dimensions, colors, and states.
+
 Simplicity preference (2026-09-15): Outside the sale screen, prioritize concise task-focused UI. Remove nonessential descriptions, repeated information and decorative clutter; reveal advanced or infrequent options only when needed. Preserve functional labels, validation, approvals and relevant demo/hardware warnings. The user approved implementing the recommendations in `qa/simplicity-audit/report.html`. Keep the sale screen unchanged.
 
 Product cards show only the centered product name: no stock, category, price, icons, promotion badges or plus symbol. Clamp names to two lines without overflow, keep equal card sizes, use two columns on phones and exactly three on tablet/desktop widths. The main checkout button says only `الدفع`, has no icon or amount, and its label is centered. Optimize the primary sale screen for a 15-inch touch display, with touch scrolling on every scrollable region. Keep the barcode search focused and ready for scanner input without a manual tap. Do not add cashier day-opening/day-closing controls or references. Avoid emoji throughout the POS UI.

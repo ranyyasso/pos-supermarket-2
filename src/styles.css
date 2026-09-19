@@ -924,7 +924,7 @@
 .checkout-secondary .btn {
   background: #d5d7d9;
   color: #252a31;
-  font-size: 11px;
+  font-size: 16px;
   border-color: var(--theme-line, #e4e5e6);
 }
 .checkout > .pay {
